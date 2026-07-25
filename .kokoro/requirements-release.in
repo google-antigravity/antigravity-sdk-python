@@ -3,7 +3,7 @@
 #      to regenerate requirements-release.txt.
 build
 tomli
-setuptools>=68.0
+setuptools>=83.0.0
 twine
 wheel
 typing-extensions
