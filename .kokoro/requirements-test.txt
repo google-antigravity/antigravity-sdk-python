@@ -558,9 +558,9 @@ python-dotenv==1.2.2 \
     --hash=sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a \
     --hash=sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3
     # via pydantic-settings
-python-multipart==0.0.28 \
-    --hash=sha256:10faac07eb966c3f48dc415f9dee46c04cb10d58d30a35677db8027c825ed9b6 \
-    --hash=sha256:8550da197eac0f7ab748961fc9509b999fa2662ea25cef857f05249f6893c0f8
+python-multipart==0.0.31 \
+    --hash=sha256:8408153d68a9773291fc1da39a8b85a50044bddbabd2dd72e9229776b7b15e28 \
+    --hash=sha256:fc631183bb13e56db3158a4909908dfb2e23565286744e798241e63750e5d680
     # via mcp
 referencing==0.37.0 \
     --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231 \
