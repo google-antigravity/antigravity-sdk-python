@@ -51,6 +51,7 @@ message StateUpdate {
     REASON_MAX_TOTAL_TOKENS_EXCEEDED = 5;
     REASON_QUOTA_EXHAUSTED = 6;
   }
+  string parent_interaction_id = 7;
   .genai.StateUpdate.State state = 3;
   string error = 4;
   .genai.StateUpdate.Reason reason = 5;
@@ -86,4 +87,5 @@ message Payload {
     .genai.CallHookRequest call_hook_request = 15;
     .genai.CallHookResponse call_hook_response = 16;
   }
+  string sub_interaction_id = 6;
 }
