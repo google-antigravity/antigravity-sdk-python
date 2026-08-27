@@ -408,11 +408,11 @@ message GoogleMapsResultContent {
   }
   repeated .genai.GoogleMapsResultContent.GoogleMapsResult result = 1;
 }
-message FunctionContent {
+message Function {
   string name = 1;
   string description = 2;
   .genai.Value parameters = 3;
-  .genai.Value response = 4;
+  .genai.Value response = 5;
   bool defer_loading = 7;
   string short_description = 8;
 }
