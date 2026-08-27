@@ -1,0 +1,336 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/elicitation.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+message StepList {
+  option (gaos.parsing.message_json_type) = JSON_TYPE_ARRAY;
+
+  repeated .genai.Step steps = 1;
+}
+message StepMetadata {
+  enum ContentStatus {
+    CONTENT_STATUS_UNSPECIFIED = 0;
+    CONTENT_STATUS_FALLBACK_MESSAGE = 1;
+    CONTENT_STATUS_BLOCKED_CONTENT = 2;
+  }
+  .genai.StepMetadata.ContentStatus content_status = 1;
+}
+message Step {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.ThoughtStep thought = 3;
+    .genai.ToolCallStep tool_call = 4;
+    .genai.ToolResultStep tool_result = 5;
+    .genai.ElicitationCallStep elicitation_call = 13;
+    .genai.ElicitationResultStep elicitation_result = 14;
+    .genai.UserInputStep user_input = 1;
+    .genai.ModelOutputStep model_output = 2;
+    .genai.LegacyTextContent text = 6;
+    .genai.LegacyImageContent image = 7;
+    .genai.LegacyAudioContent audio = 8;
+    .genai.LegacyDocumentContent document = 9;
+    .genai.LegacyVideoContent video = 10;
+  }
+  string description = 16;
+}
+message ThoughtStep {
+  bytes signature = 1;
+  repeated .genai.Content summary = 2 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image",
+    (gaos.parsing.sub_content_name) = "ThoughtContent"
+  ];
+}
+message ToolCallStep {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.FunctionCallStep function_call = 3;
+    .genai.CodeExecutionCallStep code_execution_call = 4;
+    .genai.UrlContextCallStep url_context_call = 5;
+    .genai.McpServerToolCallStep mcp_server_tool_call = 6;
+    .genai.GoogleSearchCallStep google_search_call = 7;
+    .genai.FileSearchCallStep file_search_call = 8;
+    .genai.GoogleMapsCallStep google_maps_call = 9;
+    .genai.FindFileCallStep find_file_call = 12;
+    .genai.ListDirectoryCallStep list_directory_call = 13;
+    .genai.SearchDirectoryCallStep search_directory_call = 14;
+    .genai.ViewFileCallStep view_file_call = 15;
+    .genai.EditFileCallStep edit_file_call = 16;
+    .genai.GenerateImageCallStep generate_image_call = 17;
+  }
+  string id = 1;
+  bytes signature = 2;
+}
+message ToolResultStep {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.FunctionResultStep function_result = 3;
+    .genai.CodeExecutionResultStep code_execution_result = 4;
+    .genai.UrlContextResultStep url_context_result = 5;
+    .genai.GoogleSearchResultStep google_search_result = 6;
+    .genai.McpServerToolResultStep mcp_server_tool_result = 7;
+    .genai.FileSearchResultStep file_search_result = 8;
+    .genai.GoogleMapsResultStep google_maps_result = 9;
+    .genai.FindFileResultStep find_file_result = 12;
+    .genai.ListDirectoryResultStep list_directory_result = 13;
+    .genai.SearchDirectoryResultStep search_directory_result = 14;
+    .genai.ViewFileResultStep view_file_result = 18;
+    .genai.EditFileResultStep edit_file_result = 15;
+    .genai.GenerateImageResultStep generate_image_result = 16;
+  }
+  string call_id = 1;
+  bytes signature = 2;
+}
+message FunctionCallStep {
+  string name = 1;
+  .genai.Struct arguments = 2;
+}
+message CodeExecutionCallStep {
+  message CodeExecutionCallStepArguments {
+    enum Language {
+      LANGUAGE_UNSPECIFIED = 0;
+      PYTHON = 1;
+      BASH = 2;
+    }
+    .genai.CodeExecutionCallStep.CodeExecutionCallStepArguments.Language
+        language = 1;
+    string code = 2;
+  }
+  .genai.CodeExecutionCallStep.CodeExecutionCallStepArguments arguments = 1;
+}
+message UrlContextCallStep {
+  message UrlContextCallStepArguments {
+    repeated string urls = 1;
+  }
+  .genai.UrlContextCallStep.UrlContextCallStepArguments arguments = 1;
+}
+message McpServerToolCallStep {
+  string name = 1;
+  string server_name = 2;
+  .genai.Struct arguments = 3;
+}
+message GoogleSearchCallStep {
+  message GoogleSearchCallStepArguments {
+    repeated string queries = 1;
+  }
+  .genai.GoogleSearchCallStep.GoogleSearchCallStepArguments arguments = 1;
+  .genai.GoogleSearch.SearchType search_type = 2;
+}
+message FileSearchCallStep {}
+message GoogleMapsCallStep {
+  message GoogleMapsCallStepArguments {
+    repeated string queries = 1;
+  }
+  .genai.GoogleMapsCallStep.GoogleMapsCallStepArguments arguments = 1;
+}
+message FunctionResultStep {
+  string name = 2;
+  bool is_error = 3;
+  .genai.Value result = 7 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image",
+    (gaos.parsing.json_discriminator_values) = "function",
+    (gaos.parsing.sub_content_name) = "FunctionResultSubContent"
+  ];
+}
+message CodeExecutionResultStep {
+  string result = 1;
+  bool is_error = 2;
+  int32 exit_code = 3;
+}
+message UrlContextResultStep {
+  message UrlContextResultItem {
+    enum Status {
+      STATUS_UNSPECIFIED = 0;
+      SUCCESS = 1;
+      ERROR = 2;
+      PAYWALL = 3;
+      UNSAFE = 4;
+    }
+    string url = 1;
+    .genai.UrlContextResultStep.UrlContextResultItem.Status status = 2;
+  }
+  repeated .genai.UrlContextResultStep.UrlContextResultItem result = 1;
+  bool is_error = 2;
+}
+message GoogleSearchResultStep {
+  message GoogleSearchResultItem {
+    string search_suggestions = 5;
+  }
+  repeated .genai.GoogleSearchResultStep.GoogleSearchResultItem result = 1;
+  bool is_error = 2;
+}
+message McpServerToolResultStep {
+  string name = 1;
+  string server_name = 2;
+  .genai.Value result = 7 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image",
+    (gaos.parsing.sub_content_name) = "FunctionResultSubContent"
+  ];
+}
+message FileSearchResultStep {}
+message GoogleMapsResultStep {
+  message GoogleMapsResultItem {
+    message GoogleMapsResultPlaces {
+      string place_id = 1;
+      string name = 2;
+      string url = 3;
+      repeated .genai.ReviewSnippet review_snippets = 4;
+    }
+    repeated .genai.GoogleMapsResultStep.GoogleMapsResultItem
+        .GoogleMapsResultPlaces places = 1;
+    string widget_context_token = 2;
+  }
+  repeated .genai.GoogleMapsResultStep.GoogleMapsResultItem result = 1;
+}
+message LegacyTextContent {
+  string text = 1;
+  repeated .genai.TextContent.Annotation annotations = 2;
+}
+message LegacyImageContent {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.ImageContent.MimeType mime_type = 1
+      [json_name = "legacy_mime_type_enum"];
+  string mime_type_string = 8;
+  .genai.MediaResolution resolution = 4;
+}
+message LegacyAudioContent {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.AudioContent.MimeType mime_type = 1
+      [json_name = "legacy_mime_type_enum"];
+  string mime_type_string = 11;
+  int32 rate = 4;
+  int32 channels = 5;
+  int32 sample_rate = 6;
+}
+message LegacyDocumentContent {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.DocumentContent.MimeType mime_type = 1
+      [json_name = "legacy_mime_type_enum"];
+  string mime_type_string = 6;
+}
+message LegacyVideoContent {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  oneof processing {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.VideoContent.Processing processing_type = 17;
+    .genai.VideoContent.MediaProcessing processing_config = 18;
+  }
+  .genai.VideoContent.MimeType mime_type = 1
+      [json_name = "legacy_mime_type_enum"];
+  string mime_type_string = 8;
+  .genai.MediaResolution resolution = 4;
+}
+message UserInputStep {
+  message SlashCommand {
+    string name = 1;
+  }
+  oneof content {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.ContentList content_list = 2;
+    string content_string = 3;
+    .genai.UserInputStep.SlashCommand slash_command = 4;
+  }
+}
+message ModelOutputStep {
+  repeated .genai.Content content = 1;
+}
+message TranscriptionStep {
+  int32 source_index = 1;
+}
+message FindFileCallStep {
+  string file_path = 1;
+  string query = 2;
+}
+message FindFileResultStep {}
+message ListDirectoryCallStep {
+  string directory_path = 1;
+}
+message ListDirectoryResultStep {
+  message Entry {
+    oneof info {
+      bool is_directory = 2;
+      uint64 file_size = 3;
+    }
+    string name = 1;
+  }
+  repeated .genai.ListDirectoryResultStep.Entry entries = 1;
+}
+message SearchDirectoryCallStep {
+  string directory_path = 1;
+  string query = 2;
+}
+message SearchDirectoryResultStep {
+  int32 num_results = 1;
+}
+message ViewFileCallStep {
+  string file_path = 1;
+  uint32 start_line = 2;
+  uint32 end_line = 3;
+}
+message ViewFileResultStep {}
+message EditFileCallStep {
+  string file_path = 1;
+}
+message EditFileResultStep {
+  message DiffLine {
+    enum LineAction {
+      LINE_ACTION_UNSPECIFIED = 0;
+      LINE_ACTION_INSERT = 1;
+      LINE_ACTION_DELETE = 2;
+      LINE_ACTION_NONE = 3;
+    }
+    string text = 1;
+    .genai.EditFileResultStep.DiffLine.LineAction action = 2;
+  }
+  message DiffBlock {
+    int32 start_line = 1;
+    int32 end_line = 2;
+    repeated .genai.EditFileResultStep.DiffLine lines = 3;
+  }
+  repeated .genai.EditFileResultStep.DiffBlock diff_block = 1;
+}
+message GenerateImageCallStep {
+  string prompt = 1;
+  repeated string image_paths = 2;
+}
+message GenerateImageResultStep {
+  string image_name = 1;
+  string aspect_ratio = 2;
+}

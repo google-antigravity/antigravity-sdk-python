@@ -1,0 +1,321 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/error.proto";
+import "google/antigravity/proto/interaction.proto";
+import "google/antigravity/proto/steps.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+message InteractionStatusUpdate {
+  string interaction_id = 1;
+  .genai.Interaction.Status status = 2;
+}
+message ContentStart {
+  int32 index = 1;
+  .genai.Content content = 4;
+}
+message TextDelta {
+  string text = 1;
+}
+message TextAnnotationDelta {
+  repeated .genai.TextContent.Annotation annotations = 1;
+}
+message ImageDelta {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.ImageContent.MimeType mime_type = 1;
+  .genai.MediaResolution resolution = 5;
+}
+message AudioDelta {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.AudioContent.MimeType mime_type = 1;
+  int32 rate = 4;
+  int32 sample_rate = 6;
+  int32 channels = 5;
+}
+message VideoDelta {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.VideoContent.MimeType mime_type = 1;
+  .genai.MediaResolution resolution = 5;
+}
+message DocumentDelta {
+  oneof data_or_uri {
+    bytes data = 2;
+    string uri = 3;
+  }
+  .genai.DocumentContent.MimeType mime_type = 1;
+}
+message ThoughtSummaryDelta {
+  .genai.Content content = 1 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image"
+  ];
+}
+message RawThoughtDelta {
+  .genai.Content content = 1 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image"
+  ];
+}
+message ThoughtSignatureDelta {
+  bytes signature = 1;
+}
+message FunctionCallDelta {
+  string name = 1;
+  .genai.Struct arguments = 2;
+}
+message CodeExecutionCallDelta {
+  .genai.CodeExecutionCallContent.CodeExecutionCallArguments arguments = 1;
+}
+message UrlContextCallDelta {
+  .genai.UrlContextCallContent.UrlContextCallArguments arguments = 1;
+}
+message GoogleSearchCallDelta {
+  .genai.GoogleSearchCallContent.GoogleSearchCallArguments arguments = 1;
+}
+message McpServerToolCallDelta {
+  string name = 1;
+  string server_name = 2;
+  .genai.Struct arguments = 3;
+}
+message FileSearchCallDelta {}
+message GoogleMapsCallDelta {
+  .genai.GoogleMapsCallContent.GoogleMapsCallArguments arguments = 1;
+}
+message ToolCallDelta {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.FunctionCallDelta function_call = 2;
+    .genai.CodeExecutionCallDelta code_execution_call = 3;
+    .genai.UrlContextCallDelta url_context_call = 4;
+    .genai.GoogleSearchCallDelta google_search_call = 5;
+    .genai.McpServerToolCallDelta mcp_server_tool_call = 6;
+    .genai.FileSearchCallDelta file_search_call = 7;
+    .genai.GoogleMapsCallDelta google_maps_call = 9;
+  }
+  string id = 1;
+  bytes signature = 8;
+}
+message FunctionResultDelta {
+  string name = 1;
+  bool is_error = 2;
+  .genai.Value result = 7 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image"
+  ];
+}
+message CodeExecutionResultDelta {
+  string result = 1;
+  bool is_error = 2;
+}
+message UrlContextResultDelta {
+  repeated .genai.UrlContextResultContent.UrlContextResult result = 2;
+  bool is_error = 3;
+}
+message GoogleSearchResultDelta {
+  repeated .genai.GoogleSearchResultContent.GoogleSearchResult result = 2;
+  bool is_error = 3;
+}
+message McpServerToolResultDelta {
+  string name = 1;
+  string server_name = 2;
+  .genai.Value result = 7 [
+    (gaos.parsing.json_discriminator_values) = "text",
+    (gaos.parsing.json_discriminator_values) = "image"
+  ];
+}
+message FileSearchResultDelta {
+  repeated .genai.FileSearchResultContent.FileSearchResult result = 1;
+}
+message GoogleMapsResultDelta {
+  repeated .genai.GoogleMapsResultContent.GoogleMapsResult result = 1;
+}
+message ToolResultDelta {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.FunctionResultDelta function_result = 2;
+    .genai.CodeExecutionResultDelta code_execution_result = 3;
+    .genai.UrlContextResultDelta url_context_result = 4;
+    .genai.GoogleSearchResultDelta google_search_result = 5;
+    .genai.McpServerToolResultDelta mcp_server_tool_result = 6;
+    .genai.FileSearchResultDelta file_search_result = 7;
+    .genai.GoogleMapsResultDelta google_maps_result = 10;
+  }
+  string call_id = 8;
+  bytes signature = 9;
+}
+message ContentDeltaData {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.TextDelta text = 1;
+    .genai.ImageDelta image = 2;
+    .genai.AudioDelta audio = 3;
+    .genai.DocumentDelta document = 4;
+    .genai.VideoDelta video = 5;
+    .genai.ThoughtSummaryDelta thought_summary = 6;
+    .genai.ThoughtSignatureDelta thought_signature = 7;
+    .genai.ToolCallDelta tool_call = 8;
+    .genai.ToolResultDelta tool_result = 9;
+    .genai.TextAnnotationDelta text_annotation = 10;
+  }
+}
+message ContentDelta {
+  int32 index = 1;
+  .genai.ContentDeltaData delta = 16;
+}
+message ContentStop {
+  int32 index = 1;
+}
+message InteractionStartEvent {
+  .genai.Interaction interaction = 2;
+}
+message InteractionCompleteEvent {
+  .genai.Interaction interaction = 2;
+}
+message InteractionCreatedSseEvent {
+  .genai.Interaction interaction = 1;
+}
+message InteractionCompletedSseEvent {
+  .genai.Interaction interaction = 1;
+}
+message ErrorEvent {
+  .genai.Error error = 2;
+}
+message StepStart {
+  int32 index = 1;
+  .genai.Step step = 2;
+}
+message StepDelta {
+  int32 index = 1;
+  .genai.StepDeltaData delta = 2;
+}
+message ServerToolCallDelta {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.CodeExecutionCallDelta code_execution_call = 2;
+    .genai.UrlContextCallDelta url_context_call = 3;
+    .genai.GoogleSearchCallDelta google_search_call = 4;
+    .genai.McpServerToolCallDelta mcp_server_tool_call = 5;
+    .genai.FileSearchCallDelta file_search_call = 6;
+    .genai.GoogleMapsCallDelta google_maps_call = 7;
+  }
+  bytes signature = 1;
+}
+message ServerToolResultDelta {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.CodeExecutionResultDelta code_execution_result = 2;
+    .genai.UrlContextResultDelta url_context_result = 3;
+    .genai.GoogleSearchResultDelta google_search_result = 4;
+    .genai.McpServerToolResultDelta mcp_server_tool_result = 5;
+    .genai.FileSearchResultDelta file_search_result = 6;
+    .genai.GoogleMapsResultDelta google_maps_result = 7;
+  }
+  bytes signature = 1;
+}
+message StepDeltaData {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.TextDelta text = 1;
+    .genai.ImageDelta image = 2;
+    .genai.AudioDelta audio = 3;
+    .genai.DocumentDelta document = 4;
+    .genai.VideoDelta video = 5;
+    .genai.ThoughtSummaryDelta thought_summary = 6;
+    .genai.RawThoughtDelta raw_thought = 17;
+    .genai.ThoughtSignatureDelta thought_signature = 7;
+    .genai.TextAnnotationDelta text_annotation_delta = 10;
+    .genai.ArgumentsDelta arguments_delta = 11;
+    .genai.ServerToolCallDelta server_tool_call = 12;
+    .genai.ServerToolResultDelta server_tool_result = 13;
+    .genai.FunctionResultDelta function_result = 14;
+  }
+}
+message ArgumentsDelta {
+  string arguments = 2;
+}
+message TranscriptionDelta {
+  enum TranscriptionType {
+    TRANSCRIPTION_TYPE_UNSPECIFIED = 0;
+    FINAL = 1;
+    INTERIM = 2;
+    SPECULATIVE = 3;
+  }
+  string text = 1;
+  .genai.TranscriptionDelta.TranscriptionType transcription_type = 2;
+  .genai.VoiceActivity voice_activity = 3;
+}
+message VoiceActivity {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    SPEECH_STARTED = 1;
+    SPEECH_ENDED = 2;
+  }
+  .genai.VoiceActivity.Type type = 1;
+}
+message StepStop {
+  int32 index = 1;
+  .genai.Interaction.Usage usage = 2;
+  .genai.Interaction.Usage step_usage = 3;
+}
+message InteractionStreamingEvent {
+  oneof event_type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.InteractionStartEvent interaction_start_event = 14
+        [(gaos.parsing.json_discriminator_value) = "interaction.start"];
+    .genai.InteractionCompleteEvent interaction_complete_event = 15
+        [(gaos.parsing.json_discriminator_value) = "interaction.complete"];
+    .genai.InteractionCreatedSseEvent interaction_created_event = 19
+        [(gaos.parsing.json_discriminator_value) = "interaction.created"];
+    .genai.InteractionCompletedSseEvent interaction_completed_event = 20
+        [(gaos.parsing.json_discriminator_value) = "interaction.completed"];
+    .genai.InteractionStatusUpdate interaction_status_update = 4
+        [(gaos.parsing.json_discriminator_value) = "interaction.status_update"];
+    .genai.ContentStart content_start = 10
+        [(gaos.parsing.json_discriminator_value) = "content.start"];
+    .genai.ContentDelta content_delta = 11
+        [(gaos.parsing.json_discriminator_value) = "content.delta"];
+    .genai.ContentStop content_stop = 12
+        [(gaos.parsing.json_discriminator_value) = "content.stop"];
+    .genai.ErrorEvent error_event = 9
+        [(gaos.parsing.json_discriminator_value) = "error"];
+    .genai.StepStart step_start = 16
+        [(gaos.parsing.json_discriminator_value) = "step.start"];
+    .genai.StepDelta step_delta = 17
+        [(gaos.parsing.json_discriminator_value) = "step.delta"];
+    .genai.StepStop step_stop = 18
+        [(gaos.parsing.json_discriminator_value) = "step.stop"];
+  }
+  string event_id = 13;
+}

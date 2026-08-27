@@ -1,0 +1,77 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+message EnvironmentConfig {
+  message Source {
+    enum Type {
+      TYPE_UNSPECIFIED = 0;
+      GCS = 2;
+      INLINE = 3;
+      REPOSITORY = 4;
+    }
+    .genai.EnvironmentConfig.Source.Type type = 1;
+    string source = 2;
+    string target = 3;
+    string content = 4;
+    string encoding = 5;
+  }
+  message EgressRule {
+    string domain = 1;
+    map<string, string> transform = 2 [(gaos.parsing.flexible_map) = true];
+  }
+  message EnvironmentNetworkEgressAllowlist {
+    repeated .genai.EnvironmentConfig.EgressRule allowlist = 1;
+  }
+  enum NetworkMode {
+    NETWORK_MODE_UNSPECIFIED = 0;
+    DISABLED = 1 [(gaos.parsing.enum_value_name) = "disabled"];
+  }
+  oneof network {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.EnvironmentConfig.EnvironmentNetworkEgressAllowlist
+        network_allowlist = 2;
+    .genai.EnvironmentConfig.NetworkMode network_mode = 3;
+  }
+  repeated .genai.EnvironmentConfig.Source sources = 1;
+  string environment_id = 4;
+}
+message Environment {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    ACTIVE = 1 [(gaos.parsing.enum_value_name) = "active"];
+    EXPIRED = 2 [(gaos.parsing.enum_value_name) = "expired"];
+  }
+  oneof network {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.EnvironmentConfig.EnvironmentNetworkEgressAllowlist
+        network_allowlist = 7;
+    .genai.EnvironmentConfig.NetworkMode network_mode = 8;
+  }
+  string id = 1;
+  repeated .genai.EnvironmentConfig.Source sources = 2;
+  string created = 3;
+  string updated = 4;
+  string last_accessed = 5;
+  .genai.Environment.Status status = 6;
+  int64 file_count = 9;
+  int64 size_bytes = 10;
+}

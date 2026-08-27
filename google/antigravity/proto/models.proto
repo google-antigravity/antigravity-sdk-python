@@ -1,0 +1,101 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/thinking.proto";
+import "google/antigravity/proto/tools.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+message ModelInteraction {
+  string model = 1;
+  .genai.GenerationConfig generation_config = 2;
+}
+message GenerationConfig {
+  oneof tool_choice {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.ToolChoiceType tool_choice_mode = 14;
+    .genai.ToolChoiceConfig tool_choice_config = 16;
+  }
+  float temperature = 1;
+  float top_p = 2;
+  int32 seed = 3;
+  repeated string stop_sequences = 6;
+  .genai.ThinkingLevel thinking_level = 10;
+  .genai.ThinkingSummaries thinking_summaries = 11;
+  int32 max_output_tokens = 9;
+  .genai.ImageConfig image_config = 13;
+  .genai.VideoConfig video_config = 25;
+  .genai.TranscriptionConfig transcription_config = 23;
+  .genai.SpeakerConfig structured_speech_config = 27
+      [(gaos.parsing.add_union_value) = "structured_speech_config.speakers"];
+}
+message VerbatimTranscriptionMode {
+  repeated string timestamp_granularities = 1;
+  string diarization_mode = 2;
+}
+message SmartTranscriptionMode {}
+message TranscriptionMode {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.VerbatimTranscriptionMode verbatim = 1;
+    .genai.SmartTranscriptionMode smart = 2;
+  }
+}
+message TranscriptionConfig {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    VERBATIM = 1;
+    SMART = 2;
+  }
+  oneof mode {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.TranscriptionConfig.Mode mode_enum = 6;
+    .genai.TranscriptionMode mode_config = 9;
+  }
+  repeated string language_codes = 3;
+  repeated string custom_vocabulary = 5;
+  repeated string timestamp_granularities = 1;
+  string diarization_mode = 2;
+  repeated string adaptation_phrases = 4;
+}
+message SpeakerConfig {
+  repeated .genai.SpeechConfig speakers = 1;
+}
+message SpeechConfig {
+  string voice = 1;
+  string language = 2;
+  string speaker = 3;
+}
+message ImageConfig {
+  string aspect_ratio = 1;
+  string image_size = 2;
+}
+message VideoConfig {
+  enum Task {
+    TASK_UNSPECIFIED = 0;
+    TEXT_TO_VIDEO = 1 [(gaos.parsing.enum_value_name) = "text_to_video"];
+    IMAGE_TO_VIDEO = 2 [(gaos.parsing.enum_value_name) = "image_to_video"];
+    REFERENCE_TO_VIDEO = 3
+        [(gaos.parsing.enum_value_name) = "reference_to_video"];
+    EDIT = 4 [(gaos.parsing.enum_value_name) = "edit"];
+    EXTEND = 5 [(gaos.parsing.enum_value_name) = "extend"];
+  }
+  .genai.VideoConfig.Task task = 1;
+}

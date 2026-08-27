@@ -1,0 +1,49 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2024";
+
+package genai;
+
+enum HarmCategory {
+  HARM_CATEGORY_UNSPECIFIED = 0;
+  HARM_CATEGORY_HATE_SPEECH = 1;
+  HARM_CATEGORY_DANGEROUS_CONTENT = 2;
+  HARM_CATEGORY_HARASSMENT = 3;
+  HARM_CATEGORY_SEXUALLY_EXPLICIT = 4;
+  HARM_CATEGORY_CIVIC_INTEGRITY = 5;
+  HARM_CATEGORY_IMAGE_HATE = 6;
+  HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT = 7;
+  HARM_CATEGORY_IMAGE_HARASSMENT = 8;
+  HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT = 9;
+  HARM_CATEGORY_JAILBREAK = 10;
+}
+message SafetySetting {
+  enum HarmBlockThreshold {
+    HARM_BLOCK_THRESHOLD_UNSPECIFIED = 0;
+    BLOCK_LOW_AND_ABOVE = 1;
+    BLOCK_MEDIUM_AND_ABOVE = 2;
+    BLOCK_ONLY_HIGH = 3;
+    BLOCK_NONE = 4;
+    OFF = 5;
+  }
+  enum HarmBlockMethod {
+    HARM_BLOCK_METHOD_UNSPECIFIED = 0;
+    SEVERITY = 1;
+    PROBABILITY = 2;
+  }
+  .genai.HarmCategory type = 1;
+  .genai.SafetySetting.HarmBlockThreshold threshold = 2;
+  .genai.SafetySetting.HarmBlockMethod method = 4;
+}

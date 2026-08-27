@@ -1,0 +1,132 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/protobuf/duration.proto";
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+enum ToolChoiceType {
+  TOOL_CHOICE_TYPE_UNSPECIFIED = 0;
+  AUTO = 1;
+  ANY = 2;
+  NONE = 3;
+  VALIDATED = 4;
+}
+message Tool {
+  oneof type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.Function function = 1;
+    .genai.CodeExecution code_execution = 2;
+    .genai.UrlContext url_context = 4;
+    .genai.ComputerUse computer_use = 5;
+    .genai.McpServer mcp_server = 6;
+    .genai.GoogleSearch google_search = 3;
+    .genai.FileSearch file_search = 7;
+    .genai.GoogleMaps google_maps = 8;
+    .genai.FilesystemTool filesystem = 10;
+    .genai.BashTool bash = 11;
+    .genai.ToolSearch tool_search = 28;
+  }
+}
+message ToolSearch {
+  enum ExecutionMode {
+    EXECUTION_MODE_UNSPECIFIED = 0;
+    SERVER = 1;
+    CLIENT = 2;
+  }
+}
+message CodeExecution {}
+message UrlContext {}
+message McpServer {
+  message StdioTransport {
+    string command = 1;
+    repeated string args = 2;
+    map<string, string> env = 3;
+  }
+  message HttpTransport {
+    enum AuthProviderType {
+      AUTH_PROVIDER_TYPE_UNSPECIFIED = 0;
+      AUTH_PROVIDER_TYPE_GOOGLE_CREDENTIALS = 1;
+    }
+    string url = 1;
+    map<string, string> headers = 2;
+    .genai.McpServer.HttpTransport.AuthProviderType auth_provider_type = 3;
+  }
+  oneof transport {
+    string url = 5;
+    .genai.McpServer.StdioTransport stdio = 10;
+    .genai.McpServer.HttpTransport http = 11;
+  }
+  string name = 2;
+  map<string, string> headers = 6;
+  repeated .genai.AllowedTools allowed_tools = 4;
+  .google.protobuf.Duration timeout = 13;
+}
+message FileSearch {
+  repeated string file_search_store_names = 1;
+  int32 top_k = 3;
+  string metadata_filter = 4;
+}
+message ComputerUse {
+  enum Environment {
+    ENVIRONMENT_UNSPECIFIED = 0;
+    BROWSER = 1;
+    MOBILE = 2;
+    DESKTOP = 3;
+  }
+  enum SafetyPolicy {
+    SAFETY_POLICY_UNSPECIFIED = 0;
+    FINANCIAL_TRANSACTIONS = 1;
+    SENSITIVE_DATA_MODIFICATION = 2;
+    COMMUNICATION_TOOL = 3;
+    ACCOUNT_CREATION = 4;
+    DATA_MODIFICATION = 5;
+    USER_CONSENT_MANAGEMENT = 6;
+    LEGAL_TERMS_AND_AGREEMENTS = 7;
+  }
+  .genai.ComputerUse.Environment environment = 2;
+  repeated string excluded_predefined_functions = 3;
+  bool enable_prompt_injection_detection = 4;
+  repeated .genai.ComputerUse.SafetyPolicy disabled_safety_policies = 5;
+}
+message ToolChoiceConfig {
+  .genai.AllowedTools allowed_tools = 1;
+}
+message AllowedTools {
+  .genai.ToolChoiceType mode = 1;
+  repeated string tools = 2;
+}
+message GoogleMaps {
+  bool enable_widget = 1;
+  double latitude = 2;
+  double longitude = 3;
+}
+message FilesystemTool {
+  enum Operation {
+    OPERATION_UNSPECIFIED = 0;
+    FILE_READ = 1;
+    FILE_WRITE = 2;
+    FILE_EDIT = 3;
+    FILE_FIND = 4;
+    DIRECTORY_LIST = 5;
+    FILE_GREP = 6;
+  }
+  repeated .genai.FilesystemTool.Operation supported_operations = 1;
+}
+message BashTool {}

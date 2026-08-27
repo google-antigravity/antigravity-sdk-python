@@ -1,0 +1,211 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/environment.proto";
+import "google/antigravity/proto/thinking.proto";
+import "google/antigravity/proto/tools.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+message AgentInteraction {
+  oneof agent_config {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.DynamicAgentConfig dynamic_config = 2 [
+      (gaos.parsing.json_discriminator_value) = "dynamic",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+    .genai.DeepResearchAgentConfig deep_research_config = 3 [
+      (gaos.parsing.json_discriminator_value) = "deep-research",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+    .genai.AntigravityAgentConfig antigravity_config = 12 [
+      (gaos.parsing.json_discriminator_value) = "antigravity",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+  }
+  string agent = 1;
+}
+message DeepResearchAgentConfig {
+  enum VisualizationMode {
+    UNSPECIFIED = 0;
+    OFF = 1;
+    AUTO = 2;
+  }
+  .genai.ThinkingSummaries thinking_summaries = 3;
+  .genai.DeepResearchAgentConfig.VisualizationMode visualization = 4;
+  bool collaborative_planning = 5;
+}
+message DynamicAgentConfig {
+  .genai.Struct config = 2 [(gaos.parsing.additional_properties) = true];
+}
+message AntigravityAgentConfig {
+  message GeminiModelOptions {
+    string thinking_level = 1;
+  }
+  message ModelConfig {
+    oneof endpoint {
+      .genai.AntigravityAgentConfig.GeminiAPIEndpoint gemini_api_endpoint = 3;
+      .genai.AntigravityAgentConfig.VertexEndpoint vertex_endpoint = 4;
+      .genai.AntigravityAgentConfig.GemmaEndpoint gemma_endpoint = 5;
+      .genai.AntigravityAgentConfig.CustomEndpoint custom_endpoint = 6;
+    }
+    string name = 1;
+    repeated .genai.AntigravityAgentConfig.ModelType types = 2;
+  }
+  message GeminiAPIEndpoint {
+    string base_url = 1;
+    map<string, string> http_headers = 2;
+    string api_key = 3;
+    .genai.AntigravityAgentConfig.GeminiModelOptions options = 4;
+  }
+  message VertexEndpoint {
+    string base_url = 1;
+    map<string, string> http_headers = 2;
+    string project = 3;
+    string location = 4;
+    .genai.AntigravityAgentConfig.GeminiModelOptions options = 5;
+  }
+  message GemmaEndpoint {
+    string base_url = 1;
+  }
+  message CustomEndpoint {
+    string backend_type = 1;
+    string config_json = 2;
+  }
+  message Models {
+    repeated .genai.AntigravityAgentConfig.ModelConfig models = 1;
+  }
+  message AntigravityCompactionConfig {
+    int32 token_threshold = 1;
+  }
+  message AntigravitySubagentsConfig {}
+  message Workspace {
+    oneof workspace_type {
+      .genai.AntigravityAgentConfig.FilesystemWorkspace filesystem_workspace =
+          1;
+    }
+  }
+  message FilesystemWorkspace {
+    string directory = 1;
+  }
+  message ToolOutputTruncation {
+    message TruncateStrategy {
+      int32 max_tokens = 1;
+    }
+    message ErrorStrategy {
+      int32 max_tokens = 1;
+      string error_message = 2;
+    }
+    oneof strategy {
+      .genai.AntigravityAgentConfig.ToolOutputTruncation.TruncateStrategy
+          truncate = 1;
+      .genai.AntigravityAgentConfig.ToolOutputTruncation.ErrorStrategy error =
+          2;
+    }
+  }
+  message ModelAPIRetryConfig {
+    uint32 max_retries = 1;
+    uint32 initial_sleep_duration_ms = 2;
+    double exponential_multiplier = 3;
+    double jitter_range = 4;
+  }
+  message ModelOutputRetryConfig {
+    uint32 max_retries = 1;
+  }
+  message RetryConfig {
+    .genai.AntigravityAgentConfig.ModelAPIRetryConfig api_retry = 1;
+    .genai.AntigravityAgentConfig.ModelOutputRetryConfig model_output_retry = 2;
+  }
+  enum ModelType {
+    MODEL_TYPE_UNSPECIFIED = 0;
+    MODEL_TYPE_TEXT = 1;
+    MODEL_TYPE_IMAGE = 2;
+  }
+  enum LifecycleHook {
+    LIFECYCLE_HOOK_UNSPECIFIED = 0;
+    LIFECYCLE_HOOK_ON_SESSION_START = 1;
+    LIFECYCLE_HOOK_ON_SESSION_END = 2;
+    LIFECYCLE_HOOK_PRE_TURN = 3;
+    LIFECYCLE_HOOK_POST_TURN = 4;
+    LIFECYCLE_HOOK_PRE_TOOL = 5;
+    LIFECYCLE_HOOK_POST_TOOL = 6;
+    LIFECYCLE_HOOK_ON_TOOL_ERROR = 7;
+  }
+  oneof model_config {
+    string model = 1;
+    .genai.AntigravityAgentConfig.Models models = 18;
+  }
+  .genai.AntigravityAgentConfig.AntigravityCompactionConfig compaction_config =
+      6;
+  int64 max_total_tokens = 7;
+  int64 max_tool_calls = 8;
+  .genai.AntigravityAgentConfig.AntigravitySubagentsConfig subagents_config =
+      10;
+  .genai.Value finish_tool_output_schema = 11;
+  .genai.AgentPolicy policy = 13;
+  repeated .genai.AntigravityAgentConfig.Workspace workspaces = 14;
+  repeated string skills_paths = 15;
+  string app_data_dir = 16;
+  bytes initial_trajectory = 17;
+  repeated .genai.AntigravityAgentConfig.LifecycleHook enabled_hooks = 19;
+  .genai.AntigravityAgentConfig.ToolOutputTruncation tool_output_truncation =
+      20;
+  .genai.AntigravityAgentConfig.RetryConfig retry_config = 21;
+}
+message AgentPolicy {
+  bool enable_image_generation = 1;
+  bool enable_user_questions = 2;
+  bool enforce_workspace_validation = 3;
+  bool enable_user_confirmation = 4;
+}
+message Agent {
+  message AgentTool {
+    oneof type {
+      option (gaos.parsing.subtype_source) = true;
+
+      .genai.CodeExecution code_execution = 1;
+      .genai.GoogleSearch google_search = 2;
+      .genai.UrlContext url_context = 3;
+      .genai.McpServer mcp_server = 4;
+      .genai.Function function = 5;
+    }
+  }
+  oneof agent_config {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.AntigravityAgentConfig antigravity_config = 12 [
+      (gaos.parsing.json_discriminator_value) = "antigravity",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+  }
+  oneof base_environment {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.EnvironmentConfig remote = 4 [
+      (gaos.parsing.json_discriminator_value) = "remote",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+    string env_id = 5;
+  }
+  string id = 1;
+  string base_agent = 2;
+  string system_instruction = 3;
+  string description = 7;
+  repeated .genai.Agent.AgentTool tools = 6;
+}

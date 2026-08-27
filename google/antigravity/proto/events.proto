@@ -1,0 +1,89 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2024";
+
+package genai;
+
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/hooks.proto";
+import "google/antigravity/proto/interaction.proto";
+import "google/antigravity/proto/sse_events.proto";
+import "google/antigravity/proto/steps.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+option features = { field_presence : IMPLICIT enum_type : OPEN utf8_validation : NONE };
+
+message ClientEvent {
+  oneof event_type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.Payload payload = 3;
+  }
+  int64 seq_num = 10;
+  int64 timestamp_micros = 11;
+}
+message StateUpdate {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_RUNNING = 1;
+    STATE_WAITING_FOR_TASKS = 2;
+    STATE_FULLY_IDLE = 3;
+    STATE_CANCELLED = 4;
+  }
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_MAX_MODEL_CALLS_EXCEEDED = 1;
+    REASON_MAX_TOOL_CALLS_EXCEEDED = 2;
+    REASON_MAX_INPUT_TOKENS_EXCEEDED = 3;
+    REASON_MAX_OUTPUT_TOKENS_EXCEEDED = 4;
+    REASON_MAX_TOTAL_TOKENS_EXCEEDED = 5;
+    REASON_QUOTA_EXHAUSTED = 6;
+  }
+  .genai.StateUpdate.State state = 3;
+  string error = 4;
+  .genai.StateUpdate.Reason reason = 5;
+}
+message FunctionInvocation {
+  string call_id = 1;
+  string name = 2;
+  .genai.Struct arguments = 3;
+}
+message ServerEvent {
+  oneof event_type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.Payload payload = 3;
+  }
+  int64 seq_num = 10;
+  int64 timestamp_micros = 11;
+  .genai.Interaction.Usage usage = 12;
+}
+message Payload {
+  oneof event_type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.Step step = 11;
+    .genai.StepStart step_start = 1
+        [(gaos.parsing.json_discriminator_value) = "step.start"];
+    .genai.StepDelta step_delta = 2
+        [(gaos.parsing.json_discriminator_value) = "step.delta"];
+    .genai.StepStop step_stop = 3
+        [(gaos.parsing.json_discriminator_value) = "step.stop"];
+    .genai.StateUpdate state_update = 13;
+    .genai.FunctionInvocation function_invocation = 14;
+    .genai.CallHookRequest call_hook_request = 15;
+    .genai.CallHookResponse call_hook_response = 16;
+  }
+}

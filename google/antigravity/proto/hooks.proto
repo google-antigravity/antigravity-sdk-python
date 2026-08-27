@@ -1,0 +1,98 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2024";
+
+package genai;
+
+import "google/antigravity/proto/steps.proto";
+
+option features = { field_presence : IMPLICIT enum_type : OPEN utf8_validation : NONE };
+
+enum LifecycleHook {
+  LIFECYCLE_HOOK_UNSPECIFIED = 0;
+  LIFECYCLE_HOOK_ON_SESSION_START = 1;
+  LIFECYCLE_HOOK_ON_SESSION_END = 2;
+  LIFECYCLE_HOOK_PRE_TURN = 3;
+  LIFECYCLE_HOOK_POST_TURN = 4;
+  LIFECYCLE_HOOK_PRE_TOOL = 5;
+  LIFECYCLE_HOOK_POST_TOOL = 6;
+  LIFECYCLE_HOOK_ON_TOOL_ERROR = 7;
+}
+message CallHookRequest {
+  oneof args {
+    .genai.PreTurnArgs pre_turn_args = 3;
+    .genai.PostTurnArgs post_turn_args = 4;
+    .genai.PreToolArgs pre_tool_args = 5;
+    .genai.PostToolArgs post_tool_args = 6;
+    .genai.OnToolErrorArgs on_tool_error_args = 8;
+  }
+  string request_id = 1;
+  string name = 2;
+  .genai.LifecycleHook type = 7;
+}
+message CallHookResponse {
+  oneof result {
+    .genai.PreTurnResult pre_turn_result = 2;
+    .genai.PreToolResult pre_tool_result = 3;
+    .genai.EmptyResult empty_result = 4;
+    string error_message = 5;
+    .genai.OnToolErrorResult on_tool_error_result = 6;
+  }
+  string request_id = 1;
+}
+message PreTurnArgs {
+  .genai.UserInputStep user_input = 1;
+}
+message PostTurnArgs {
+  string response_text = 1;
+}
+message PreToolArgs {
+  string tool_name = 1;
+  string arguments_json = 2;
+  string server_name = 3;
+}
+message PostToolArgs {
+  string tool_name = 1;
+  string result = 2;
+  string server_name = 3;
+}
+message OnToolErrorArgs {
+  string tool_name = 1;
+  string error_message = 2;
+  string server_name = 3;
+}
+message EmptyResult {}
+message OnToolErrorResult {
+  string custom_error_message = 1;
+}
+message PreToolResult {
+  enum Decision {
+    DECISION_UNSPECIFIED = 0;
+    ALLOW = 1;
+    DENY = 2;
+  }
+  .genai.PreToolResult.Decision decision = 1;
+  string reason = 2;
+  string modified_arguments_json = 3;
+}
+message PreTurnResult {
+  enum Decision {
+    DECISION_UNSPECIFIED = 0;
+    ALLOW = 1;
+    DENY = 2;
+  }
+  .genai.PreTurnResult.Decision decision = 1;
+  string reason = 2;
+}

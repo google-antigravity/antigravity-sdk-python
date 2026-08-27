@@ -1,0 +1,185 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/antigravity/proto/agents.proto";
+import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/environment.proto";
+import "google/antigravity/proto/error.proto";
+import "google/antigravity/proto/models.proto";
+import "google/antigravity/proto/response_format.proto";
+import "google/antigravity/proto/steps.proto";
+import "google/antigravity/proto/tools.proto";
+import "google/antigravity/proto/genai_json_annotations.proto";
+
+enum ResponseModality {
+  RESPONSE_MODALITY_UNSPECIFIED = 0;
+  TEXT = 1;
+  IMAGE = 2;
+  AUDIO = 3;
+  VIDEO = 4;
+  DOCUMENT = 5;
+}
+enum ServiceTier {
+  SERVICE_TIER_UNSPECIFIED = 0;
+  SERVICE_TIER_FLEX = 1;
+  SERVICE_TIER_STANDARD = 2;
+  SERVICE_TIER_PRIORITY = 3;
+}
+message Interaction {
+  option (gaos.parsing.add_static_field) = {
+    key: "object"
+    value: "interaction"
+  };
+
+  message Usage {
+    message ModalityTokens {
+      .genai.ResponseModality modality = 1;
+      int32 tokens = 2;
+    }
+    message ModelInvocationTokenCounts {
+      repeated .genai.Interaction.Usage.ModalityTokens prompt_tokens_details =
+          1;
+      repeated .genai.Interaction.Usage.ModalityTokens cache_tokens_details = 2;
+      repeated .genai.Interaction.Usage.ModalityTokens
+          candidates_tokens_details = 3;
+      repeated .genai.Interaction.Usage.ModalityTokens thoughts_tokens_details =
+          4;
+    }
+    message GroundingToolCount {
+      enum Type {
+        TYPE_UNSPECIFIED = 0;
+        GOOGLE_SEARCH = 1;
+        GOOGLE_MAPS = 2;
+      }
+      .genai.Interaction.Usage.GroundingToolCount.Type type = 1;
+      int32 count = 2;
+    }
+    int32 total_input_tokens = 7;
+    repeated .genai.Interaction.Usage.ModalityTokens input_tokens_by_modality =
+        8;
+    int32 total_cached_tokens = 9;
+    repeated .genai.Interaction.Usage.ModalityTokens cached_tokens_by_modality =
+        10;
+    int32 total_output_tokens = 11;
+    repeated .genai.Interaction.Usage.ModalityTokens output_tokens_by_modality =
+        12;
+    int32 total_tool_use_tokens = 13;
+    repeated .genai.Interaction.Usage.ModalityTokens
+        tool_use_tokens_by_modality = 14;
+    int32 total_thought_tokens = 16;
+    int32 total_tokens = 6;
+    repeated .genai.Interaction.Usage.GroundingToolCount grounding_tool_count =
+        17;
+  }
+  enum Status {
+    UNSPECIFIED = 0;
+    IN_PROGRESS = 2;
+    REQUIRES_ACTION = 5;
+    COMPLETED = 3;
+    FAILED = 4;
+    CANCELLED = 10;
+    INCOMPLETE = 11;
+    BUDGET_EXCEEDED = 12;
+  }
+  oneof system_instruction_config {
+    string system_instruction = 9;
+    .genai.SystemInstructions system_instructions = 63;
+  }
+  oneof input {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.ContentList content_list = 11 [
+      (gaos.parsing.json_discriminator_value) = "unused",
+      (gaos.parsing.json_only_discriminator) =
+          "__content_list_hidden_discriminator__"
+    ];
+    string string_content = 12;
+    .genai.TurnList turn_list = 37 [(gaos.parsing.json_discriminator) = "role"];
+    .genai.StepList step_list = 53 [(gaos.parsing.json_discriminator) = "type"];
+    .genai.Content content = 40;
+  }
+  oneof response_format_config {
+    option (gaos.parsing.is_union) = true;
+    option (gaos.parsing.union_name) = "response_format";
+
+    .genai.Value response_format = 33;
+    .genai.ResponseFormatList response_format_list = 56;
+    .genai.ResponseFormat response_format_singleton = 57
+        [(gaos.parsing.json_discriminator) = "type"];
+  }
+  oneof request_type {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.ModelInteraction model_interaction = 41
+        [(gaos.parsing.json_discriminator) = "model"];
+    .genai.AgentInteraction agent_interaction = 42
+        [(gaos.parsing.json_discriminator) = "agent"];
+  }
+  oneof environment {
+    option (gaos.parsing.is_union) = true;
+
+    string env_id = 55;
+    .genai.EnvironmentConfig remote_environment = 54 [
+      (gaos.parsing.json_discriminator_value) = "remote",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+  }
+  string id = 2;
+  .genai.Interaction.Status status = 3;
+  string created = 43;
+  string updated = 44;
+  string role = 38;
+  repeated .genai.Content outputs = 7;
+  repeated .genai.Tool tools = 10;
+  .genai.Interaction.Usage usage = 16;
+  repeated .genai.ResponseModality response_modalities = 29;
+  string response_mime_type = 35;
+  string previous_interaction_id = 34;
+  string environment_id = 47;
+  .genai.ServiceTier service_tier = 48;
+  repeated .genai.Step steps = 51;
+  repeated .genai.Error errors = 62;
+}
+message InteractionMetadata {
+  string id = 1;
+  .genai.Interaction.Status status = 2;
+  string created = 3;
+  string updated = 4;
+}
+message SystemInstructions {
+  oneof type {
+    .genai.CustomSystemInstructions custom = 1;
+    .genai.AppendedSystemInstructions appended = 2;
+  }
+}
+message CustomSystemInstructions {
+  message Part {
+    oneof part {
+      string text = 1;
+    }
+  }
+  repeated .genai.CustomSystemInstructions.Part part = 1;
+}
+message AppendedSystemInstructions {
+  message Section {
+    string title = 1;
+    string content = 2;
+  }
+  string custom_identity = 1;
+  repeated .genai.AppendedSystemInstructions.Section appended_sections = 2;
+}

@@ -1,0 +1,62 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package genai;
+
+import "google/protobuf/duration.proto";
+import "google/antigravity/proto/content.proto";
+
+message UserTimeout {}
+message ElicitationPreamble {
+  repeated .genai.Content content = 1;
+}
+message ElicitationChoice {
+  string label = 1;
+  repeated .genai.Content display = 2;
+}
+message ConfirmationRequest {
+  .genai.ElicitationChoice positive_choice = 1;
+  .genai.ElicitationChoice negative_choice = 2;
+}
+message MultipleChoiceRequest {
+  repeated .genai.ElicitationChoice choices = 1;
+  bool allow_multiple_selections = 2;
+}
+message ConfirmationResponse {
+  bool is_confirmed = 1;
+}
+message MultipleChoiceResponse {
+  repeated string selected_choice_labels = 1;
+  .genai.ContentList user_input = 2;
+}
+message ElicitationCallStep {
+  oneof type {
+    .genai.ConfirmationRequest confirmation_request = 3;
+    .genai.MultipleChoiceRequest multiple_choice_request = 5;
+  }
+  string elicitation_id = 1;
+  .genai.ElicitationPreamble preamble = 2;
+  .google.protobuf.Duration timeout_duration = 4;
+}
+message ElicitationResultStep {
+  oneof type {
+    .genai.ContentList user_input = 2;
+    .genai.UserTimeout user_timeout = 3;
+    .genai.ConfirmationResponse confirmation = 4;
+    .genai.MultipleChoiceResponse multiple_choice = 5;
+  }
+  string elicitation_id = 1;
+}
