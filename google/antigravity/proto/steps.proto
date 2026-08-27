@@ -77,6 +77,7 @@ message ToolCallStep {
     .genai.ViewFileCallStep view_file_call = 15;
     .genai.EditFileCallStep edit_file_call = 16;
     .genai.GenerateImageCallStep generate_image_call = 17;
+    .genai.ProcessingCallStep processing_call = 18;
   }
   string id = 1;
   bytes signature = 2;
@@ -98,6 +99,7 @@ message ToolResultStep {
     .genai.ViewFileResultStep view_file_result = 18;
     .genai.EditFileResultStep edit_file_result = 15;
     .genai.GenerateImageResultStep generate_image_result = 16;
+    .genai.ProcessingResultStep processing_result = 17;
   }
   string call_id = 1;
   bytes signature = 2;
@@ -144,6 +146,8 @@ message GoogleMapsCallStep {
   }
   .genai.GoogleMapsCallStep.GoogleMapsCallStepArguments arguments = 1;
 }
+message ProcessingCallStep {}
+message ProcessingResultStep {}
 message FunctionResultStep {
   string name = 2;
   bool is_error = 3;
@@ -255,6 +259,7 @@ message LegacyVideoContent {
       [json_name = "legacy_mime_type_enum"];
   string mime_type_string = 8;
   .genai.MediaResolution resolution = 4;
+  string name = 16;
 }
 message UserInputStep {
   message SlashCommand {

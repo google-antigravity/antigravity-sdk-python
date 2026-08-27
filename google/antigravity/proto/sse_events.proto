@@ -106,6 +106,8 @@ message FileSearchCallDelta {}
 message GoogleMapsCallDelta {
   .genai.GoogleMapsCallContent.GoogleMapsCallArguments arguments = 1;
 }
+message ProcessingCallDelta {}
+message ProcessingResultDelta {}
 message ToolCallDelta {
   oneof type {
     option (gaos.parsing.subtype_source) = true;
@@ -226,6 +228,7 @@ message ServerToolCallDelta {
     .genai.McpServerToolCallDelta mcp_server_tool_call = 5;
     .genai.FileSearchCallDelta file_search_call = 6;
     .genai.GoogleMapsCallDelta google_maps_call = 7;
+    .genai.ProcessingCallDelta processing_call = 10;
   }
   bytes signature = 1;
 }
@@ -239,6 +242,7 @@ message ServerToolResultDelta {
     .genai.McpServerToolResultDelta mcp_server_tool_result = 5;
     .genai.FileSearchResultDelta file_search_result = 6;
     .genai.GoogleMapsResultDelta google_maps_result = 7;
+    .genai.ProcessingResultDelta processing_result = 10;
   }
   bytes signature = 1;
 }

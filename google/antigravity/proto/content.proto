@@ -183,6 +183,7 @@ message VideoContent {
       [json_name = "legacy_mime_type_enum"];
   string mime_type_string = 8;
   .genai.MediaResolution resolution = 5;
+  string name = 16;
 }
 message UrlCitation {
   string url = 1;
