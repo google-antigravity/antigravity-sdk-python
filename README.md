@@ -30,11 +30,31 @@ python ./examples/getting_started/hello_world.py
 ## Gemini Enterprise Agent Platform (formerly Vertex AI)
 
 To use the SDK with Gemini Enterprise Agent Platform (formerly Vertex AI),
-configure `LocalAgentConfig` with `vertex=True` and specify your GCP `project`
-and `location`.
+the SDK supports two authentication modes:
 
-By default, the SDK uses Application Default Credentials (ADC) for
-authentication.
+### 1. Express Mode (API Key)
+
+For fast setup without requiring Google Cloud projects, regional configuration,
+or Application Default Credentials (ADC), provide an API key with `vertex=True`:
+
+```python
+from google.antigravity import Agent, LocalAgentConfig
+
+config = LocalAgentConfig(
+    vertex=True,
+    api_key="your_api_key_here",
+)
+
+async with Agent(config) as agent:
+    response = await agent.chat("Hello!")
+    print(await response.text())
+```
+
+### 2. Standard Mode (Project & Location with ADC)
+
+For enterprise deployments routing to regional endpoints, configure
+`LocalAgentConfig` with `vertex=True`, `project`, and `location`. By default,
+this mode authenticates via Application Default Credentials (ADC).
 
 ```python
 from google.antigravity import Agent, LocalAgentConfig
@@ -62,11 +82,13 @@ export GOOGLE_CLOUD_LOCATION="us-central1"
 
 Explicit kwargs always take precedence over env vars.
 
-Ensure you have authenticated locally before running the agent:
+Ensure you have authenticated locally before running the agent in Standard Mode:
 
 ```sh
 gcloud auth application-default login
 ```
+
+See [vertex.py](./examples/getting_started/vertex.py) for a complete example.
 
 ## Concepts
 

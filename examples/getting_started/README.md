@@ -42,6 +42,7 @@ Once you have the quickstart running, explore the modular examples below to unde
 ### Core Foundations
 The essential building blocks for initializing, configuring, and prompting agents.
 * [hello_world.py](hello_world.py): Initializing an agent, context manager usage, and explicit model configuration.
+* [vertex.py](vertex.py): Connecting to Vertex AI (Gemini Enterprise Agent Platform) via Express Mode (API key) or Standard Mode (GCP project & location with ADC).
 * [streaming.py](streaming.py): Real-time token streaming and inspecting model reasoning via `response.thoughts`.
 * [persona_config.py](persona_config.py): Structuring system instructions and shaping agent identity using `TemplatedSystemInstructions`.
 * [prioritized_inference.py](prioritized_inference.py): Configuring Gemini Prioritized Inference (`service_tier="priority"`) and monitoring server-side rate limit downgrades.
