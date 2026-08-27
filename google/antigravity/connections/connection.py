@@ -119,7 +119,10 @@ class AgentConfig(abc.ABC, pydantic.BaseModel):
     return self
 
   @pydantic.field_validator("response_schema")
-  def _validate_schema(cls, v):  # pylint: disable=no-self-argument
+  @classmethod
+  def _validate_schema(
+      cls, v: dict[str, Any] | type[pydantic.BaseModel] | str | None
+  ) -> str | None:
     if v is None:
       return None
     if isinstance(v, str):
@@ -139,7 +142,7 @@ class AgentConfig(abc.ABC, pydantic.BaseModel):
 
   @pydantic.field_validator("policies", mode="before")
   @classmethod
-  def _validate_policies(cls, v):  # pylint: disable=no-self-argument
+  def _validate_policies(cls, v: Any) -> list[policy.Policy]:
     if v is None:
       return []
     if not isinstance(v, (list, tuple, Sequence)) or isinstance(

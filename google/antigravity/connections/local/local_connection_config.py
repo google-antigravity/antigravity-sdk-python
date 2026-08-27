@@ -152,7 +152,8 @@ class BaseLocalAgentConfig(connection.AgentConfig):
     return normalize_workspace_paths(v, default_to_cwd=True)
 
   @pydantic.field_validator("app_data_dir")
-  def _validate_app_data_dir(cls, v: str | None) -> str | None:  # pylint: disable=no-self-argument
+  @classmethod
+  def _validate_app_data_dir(cls, v: str | None) -> str | None:
     if v is not None and not os.path.isabs(v):
       raise ValueError(f"app_data_dir must be an absolute path, got '{v}'")
     return v

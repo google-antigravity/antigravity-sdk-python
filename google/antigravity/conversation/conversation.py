@@ -47,13 +47,15 @@ class Conversation:
       max_history_size: int = _DEFAULT_MAX_HISTORY_SIZE,
       history: Sequence[types.Step] | None = None,
   ):
-    """Initializes the conversation with a connection and empty history.
+    """Initializes the conversation with a connection and optional initial history.
 
     Args:
       conn: The established connection to the agent backend.
       max_history_size: Maximum number of steps to retain in history.
         When exceeded, the oldest steps are discarded. Set to 0 to
         disable the limit.
+      history: Optional initial sequence of steps to seed the conversation
+        history.
     """
     self._connection = conn
     self._steps: list[types.Step] = []
