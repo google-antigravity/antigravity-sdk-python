@@ -241,7 +241,6 @@ message GoogleSearch {
     SEARCH_TYPE_UNSPECIFIED = 0;
     SEARCH_TYPE_WEB_SEARCH = 1;
     SEARCH_TYPE_IMAGE_SEARCH = 2;
-    SEARCH_TYPE_ENTERPRISE_WEB_SEARCH = 3;
   }
   repeated .genai.GoogleSearch.SearchType search_types = 1;
 }
