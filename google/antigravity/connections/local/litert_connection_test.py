@@ -372,6 +372,41 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertIsNone(litert_config.capabilities.enabled_tools)
     self.assertIsNone(litert_config.capabilities.disabled_tools)
 
+  def test_litert_config_lightweight_method(self):
+    """Verify LiteRTAgentConfig.lightweight returns LiteRTAgentConfig with defaults."""
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    ).lightweight()
+    self.assertIsInstance(config, litert_connection_config.LiteRTAgentConfig)
+    self.assertEqual(config.model_path, "/tmp/model.litertlm")
+    self.assertEqual(config.backend, litert_connection_config.LiteRTBackend.CPU)
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertEqual(config.capabilities.compaction_threshold, 65536)
+    self.assertFalse(config.capabilities.enable_subagents)
+
+  def test_litert_config_lightweight_method_with_overrides(self):
+    """Verify LiteRTAgentConfig.lightweight respects capability overrides."""
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+        capabilities=types.CapabilitiesConfig(compaction_threshold=3000),
+    ).lightweight()
+    self.assertIsInstance(config, litert_connection_config.LiteRTAgentConfig)
+    self.assertEqual(config.capabilities.compaction_threshold, 3000)
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertFalse(config.capabilities.enable_subagents)
+
   @mock.patch("os.path.exists")
   @mock.patch("subprocess.Popen")
   @mock.patch(

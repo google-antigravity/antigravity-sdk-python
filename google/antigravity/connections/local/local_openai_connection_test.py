@@ -94,6 +94,45 @@ class LocalOpenAIConnectionTest(unittest.TestCase):
     self.assertIsNone(openai_config.capabilities.enabled_tools)
     self.assertIsNone(openai_config.capabilities.disabled_tools)
 
+  def test_local_openai_config_lightweight_method(self):
+    """Verify LocalOpenAIAgentConfig.lightweight returns LocalOpenAIAgentConfig with defaults."""
+    config = local_openai_connection_config.LocalOpenAIAgentConfig(
+        base_url="http://localhost:11434/v1",
+        model="llama3.1",
+    ).lightweight()
+    self.assertIsInstance(
+        config, local_openai_connection_config.LocalOpenAIAgentConfig
+    )
+    self.assertEqual(config.base_url, "http://localhost:11434/v1")
+    self.assertEqual(config.model, "llama3.1")
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertEqual(config.capabilities.compaction_threshold, 65536)
+    self.assertFalse(config.capabilities.enable_subagents)
+
+  def test_local_openai_config_lightweight_method_with_overrides(self):
+    """Verify LocalOpenAIAgentConfig.lightweight respects capability overrides."""
+    config = local_openai_connection_config.LocalOpenAIAgentConfig(
+        base_url="http://localhost:11434/v1",
+        model="llama3.1",
+        capabilities=types.CapabilitiesConfig(compaction_threshold=4000),
+    ).lightweight()
+    self.assertIsInstance(
+        config, local_openai_connection_config.LocalOpenAIAgentConfig
+    )
+    self.assertEqual(config.capabilities.compaction_threshold, 4000)
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertFalse(config.capabilities.enable_subagents)
+
   def test_local_openai_config_workspace_policies(self):
     """Verify LocalOpenAIAgentConfig does not prepend workspace_only policy."""
     config_openai = local_openai_connection_config.LocalOpenAIAgentConfig(

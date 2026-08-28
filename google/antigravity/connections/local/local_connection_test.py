@@ -1444,6 +1444,27 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
         localharness_pb2.AGENT_BEHAVIOR_INTERACTIVE,
     )
 
+  def test_subagent_minimal_agent_behavior_config_produces_valid_proto(self):
+    """Verifies that SubagentCapabilities.agent_behavior=MINIMAL sets CustomAgent.agent_behavior."""
+    strategy = self._make_strategy(
+        subagents=[
+            types.SubagentConfig(
+                name="minimal_subagent",
+                description="A subagent that runs in minimal behavior.",
+                model="gemini-3.7-flash",
+                capabilities=types.SubagentCapabilities(
+                    agent_behavior=types.AgentBehavior.MINIMAL
+                ),
+            )
+        ]
+    )
+    config = strategy._build_harness_config()
+    self.assertLen(config.custom_subagents, 1)
+    self.assertEqual(
+        config.custom_subagents[0].agent_behavior,
+        localharness_pb2.AGENT_BEHAVIOR_MINIMAL,
+    )
+
   def test_legacy_shorthands_api_key_produces_valid_proto(self):
     """Verifies that the legacy api_key shorthand translates to the models proto."""
     cfg = local_connection_config.LocalAgentConfig(
@@ -4506,6 +4527,57 @@ class LocalAgentConfigTest(absltest.TestCase):
     allow_policy = config.policies[1]
     self.assertEqual(allow_policy.tool, "*")
     self.assertEqual(allow_policy.decision, policy.Decision.APPROVE)
+
+  def test_lightweight_method(self):
+    config = local_connection_config.LocalAgentConfig(
+        model="gemini-3.7-flash",
+    ).lightweight()
+    self.assertIsInstance(config, local_connection_config.LocalAgentConfig)
+    self.assertEqual(config.model, "gemini-3.7-flash")
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertEqual(config.capabilities.compaction_threshold, 65536)
+    self.assertFalse(config.capabilities.enable_subagents)
+
+    # Verify HarnessConfig proto serialization with agent_behavior
+    strategy = config.create_strategy(tool_runner=None, hook_runner=None)
+    harness_config = strategy._build_harness_config()
+    self.assertEqual(
+        harness_config.agent_behavior,
+        localharness_pb2.AGENT_BEHAVIOR_MINIMAL,
+    )
+    self.assertEqual(harness_config.compaction_threshold, 65536)
+    self.assertFalse(harness_config.harness_side_tools.subagents.enabled)
+    self.assertTrue(harness_config.harness_side_tools.run_command.enabled)
+    self.assertTrue(harness_config.harness_side_tools.view_file.enabled)
+    self.assertTrue(harness_config.harness_side_tools.write_to_file.enabled)
+    self.assertTrue(harness_config.harness_side_tools.file_edit.enabled)
+    self.assertTrue(harness_config.harness_side_tools.list_dir.enabled)
+    self.assertTrue(harness_config.harness_side_tools.grep_search.enabled)
+    self.assertFalse(harness_config.harness_side_tools.find.enabled)
+    self.assertFalse(harness_config.harness_side_tools.user_questions.enabled)
+
+  def test_lightweight_method_with_overrides(self):
+    config = local_connection_config.LocalAgentConfig(
+        model="gemini-2.5-flash-lite",
+        capabilities=types.CapabilitiesConfig(
+            compaction_threshold=8000,
+        ),
+    ).lightweight()
+    self.assertIsInstance(config, local_connection_config.LocalAgentConfig)
+    self.assertEqual(config.model, "gemini-2.5-flash-lite")
+    self.assertEqual(config.capabilities.compaction_threshold, 8000)
+    self.assertFalse(config.capabilities.enable_subagents)
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
 
   def test_safe_defaults_with_default_workspace(self):
     """LocalAgentConfig defaults to CWD workspace when not specified."""

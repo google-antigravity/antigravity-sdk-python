@@ -689,6 +689,18 @@ class BuiltinToolsTest(parameterized.TestCase):
     """Verifies that none() returns an empty list."""
     self.assertEqual(types.BuiltinTools.none(), [])
 
+  def test_minimal_returns_six_minimal_tools(self):
+    """Verifies that minimal() returns exactly the 6 core software engineering tools."""
+    expected = [
+        types.BuiltinTools.RUN_COMMAND,
+        types.BuiltinTools.VIEW_FILE,
+        types.BuiltinTools.CREATE_FILE,
+        types.BuiltinTools.EDIT_FILE,
+        types.BuiltinTools.LIST_DIR,
+        types.BuiltinTools.SEARCH_DIR,
+    ]
+    self.assertEqual(types.BuiltinTools.minimal(), expected)
+
 
 class AgentBehaviorTest(unittest.TestCase):
   """Tests for the AgentBehavior enum."""
@@ -696,6 +708,7 @@ class AgentBehaviorTest(unittest.TestCase):
   def test_enum_values(self):
     self.assertEqual(types.AgentBehavior.AUTONOMOUS, "autonomous")
     self.assertEqual(types.AgentBehavior.INTERACTIVE, "interactive")
+    self.assertEqual(types.AgentBehavior.MINIMAL, "minimal")
 
 
 class CapabilitiesConfigTest(unittest.TestCase):
@@ -719,6 +732,12 @@ class CapabilitiesConfigTest(unittest.TestCase):
     self.assertEqual(config.agent_behavior, types.AgentBehavior.INTERACTIVE)
     config_str = types.CapabilitiesConfig(agent_behavior="interactive")
     self.assertEqual(config_str.agent_behavior, types.AgentBehavior.INTERACTIVE)
+    config_min = types.CapabilitiesConfig(
+        agent_behavior=types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(config_min.agent_behavior, types.AgentBehavior.MINIMAL)
+    config_min_str = types.CapabilitiesConfig(agent_behavior="minimal")
+    self.assertEqual(config_min_str.agent_behavior, types.AgentBehavior.MINIMAL)
 
   def test_enabled_tools(self):
     """Verifies that enabled_tools accepts a list of BuiltinTools."""

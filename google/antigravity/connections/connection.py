@@ -28,9 +28,10 @@ import abc
 import json
 import logging
 import re
-from typing import Any, AsyncIterator, Callable, Mapping, Sequence
+from typing import Any, AsyncIterator, Callable, Mapping, Sequence, cast
 
 import pydantic
+from typing_extensions import Self
 
 from google.antigravity import types
 from google.antigravity.hooks import hooks as hooks_mod
@@ -210,6 +211,31 @@ class AgentConfig(abc.ABC, pydantic.BaseModel):
             seen_names[name] = tool
             tools.append(tool)
     return tools
+
+  def lightweight(self: Self) -> Self:
+    """Returns a copy of this configuration with lightweight presets applied."""
+    preset_kwargs = {
+        "enabled_tools": types.BuiltinTools.minimal(),
+        "agent_behavior": types.AgentBehavior.MINIMAL,
+        "enable_subagents": False,
+        "compaction_threshold": 65536,
+    }
+    if (
+        "capabilities" in self.model_fields_set
+        and self.capabilities is not None
+    ):
+      user_caps = self.capabilities.model_dump(exclude_unset=True)
+      if "disabled_tools" in user_caps and "enabled_tools" not in user_caps:
+        disabled = set(self.capabilities.disabled_tools or [])
+        preset_kwargs["enabled_tools"] = [
+            t for t in types.BuiltinTools.minimal() if t not in disabled
+        ]
+        user_caps.pop("disabled_tools", None)
+      preset_kwargs.update(user_caps)
+    new_capabilities = types.CapabilitiesConfig(**preset_kwargs)
+    return cast(
+        Self, self.model_copy(update={"capabilities": new_capabilities})
+    )
 
   @abc.abstractmethod
   def create_strategy(

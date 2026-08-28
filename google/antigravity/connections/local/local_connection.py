@@ -77,12 +77,11 @@ def to_proto_session_continuation_mode(
 
 
 _AGENT_BEHAVIOR_MAP = {
-    types.AgentBehavior.AUTONOMOUS: (
-        localharness_pb2.AGENT_BEHAVIOR_AUTONOMOUS
-    ),
+    types.AgentBehavior.AUTONOMOUS: localharness_pb2.AGENT_BEHAVIOR_AUTONOMOUS,
     types.AgentBehavior.INTERACTIVE: (
         localharness_pb2.AGENT_BEHAVIOR_INTERACTIVE
     ),
+    types.AgentBehavior.MINIMAL: localharness_pb2.AGENT_BEHAVIOR_MINIMAL,
 }
 
 

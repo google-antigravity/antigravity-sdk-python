@@ -15,6 +15,7 @@
 """Validates default implementations in the Connection abstract base class."""
 
 import unittest
+import pydantic
 from google.antigravity import types
 from google.antigravity.connections import connection
 from google.antigravity.hooks import hooks as hooks_mod
@@ -203,6 +204,117 @@ class AgentConfigTest(unittest.TestCase):
           session_continuation_mode=types.SessionContinuationMode.RESUME,
           conversation_id=None,
       )
+
+  def test_lightweight_method_returns_subclass_instance_with_presets(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    config = ConcreteConfig(
+        system_instructions="test prompt",
+    ).lightweight()
+    self.assertIsInstance(config, ConcreteConfig)
+    self.assertEqual(config.system_instructions, "test prompt")
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertFalse(config.capabilities.enable_subagents)
+    self.assertEqual(config.capabilities.compaction_threshold, 65536)
+
+  def test_lightweight_method_merges_with_custom_capabilities(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    config = ConcreteConfig(
+        workspaces=["/tmp/workspace"],
+        app_data_dir="/tmp/app",
+        capabilities=types.CapabilitiesConfig(
+            compaction_threshold=4000,
+        ),
+    ).lightweight()
+    self.assertIsInstance(config, ConcreteConfig)
+    self.assertEqual(config.workspaces, ["/tmp/workspace"])
+    self.assertEqual(config.app_data_dir, "/tmp/app")
+    self.assertEqual(config.capabilities.compaction_threshold, 4000)
+    self.assertFalse(config.capabilities.enable_subagents)
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+
+  def test_lightweight_method_returns_copy_without_mutating_original(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    original = ConcreteConfig()
+    lightweight_config = original.lightweight()
+    self.assertIsNot(lightweight_config, original)
+    self.assertNotEqual(
+        original.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
+    )
+    self.assertEqual(
+        lightweight_config.capabilities.agent_behavior,
+        types.AgentBehavior.MINIMAL,
+    )
+
+  def test_capabilities_none_raises_validation_error(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    with self.assertRaises(pydantic.ValidationError):
+      ConcreteConfig(capabilities=None)
+
+  def test_lightweight_method_respects_custom_preset_overrides(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    config = ConcreteConfig(
+        capabilities=types.CapabilitiesConfig(
+            agent_behavior=types.AgentBehavior.INTERACTIVE,
+            enable_subagents=True,
+        ),
+    ).lightweight()
+    self.assertEqual(
+        config.capabilities.agent_behavior, types.AgentBehavior.INTERACTIVE
+    )
+    self.assertTrue(config.capabilities.enable_subagents)
+    self.assertEqual(
+        config.capabilities.enabled_tools, types.BuiltinTools.minimal()
+    )
+    self.assertEqual(config.capabilities.compaction_threshold, 65536)
+
+  def test_lightweight_method_filters_disabled_tools_from_minimal_presets(self):
+    class ConcreteConfig(connection.AgentConfig):
+
+      def create_strategy(self, *, tool_runner, hook_runner):
+        return None
+
+    config = ConcreteConfig(
+        capabilities=types.CapabilitiesConfig(
+            disabled_tools=[types.BuiltinTools.RUN_COMMAND],
+        ),
+    ).lightweight()
+    self.assertNotIn(
+        types.BuiltinTools.RUN_COMMAND, config.capabilities.enabled_tools
+    )
+    self.assertIn(
+        types.BuiltinTools.VIEW_FILE, config.capabilities.enabled_tools
+    )
+    self.assertIsNone(config.capabilities.disabled_tools)
 
 
 if __name__ == "__main__":

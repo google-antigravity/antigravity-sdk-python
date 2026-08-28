@@ -164,10 +164,14 @@ class AgentBehavior(str, enum.Enum):
     INTERACTIVE: The agent works collaboratively with a human, asking for
       clarifications and keeping them in the loop if needed. Enables features
       like slash commands and planning mode.
+    MINIMAL: Streamlined prompt behavior optimized for small-context and
+      on-device models by filtering system instructions down to core identity,
+      guidelines, and communication style.
   """
 
   AUTONOMOUS = "autonomous"
   INTERACTIVE = "interactive"
+  MINIMAL = "minimal"
 
 
 class RunCommandConfig(pydantic.BaseModel):
@@ -199,9 +203,9 @@ class SubagentCapabilities(pydantic.BaseModel):
   Attributes:
     agent_behavior: Operational execution behavior for the subagent. In
       particular, AgentBehavior.AUTONOMOUS incentivizes the agent to solve the
-      task on their own from start to finish while AgentBehavior.INTERACTIVE
-      makes the agent work collaboratively with a human, asking for
-      clarifications and keeping them in the loop if needed. Defaults to
+      task on their own from start to finish, AgentBehavior.INTERACTIVE makes
+      the agent work collaboratively with a human, and AgentBehavior.MINIMAL
+      prunes prompt overhead for small-context models. Defaults to
       AgentBehavior.AUTONOMOUS.
     allowed_subagents: Explicit allowlist of subagent names this subagent may
       directly invoke. When None, all registered subagents are discoverable.
@@ -389,6 +393,25 @@ class BuiltinTools(str, enum.Enum):
     """
     return []
 
+  @classmethod
+  def minimal(cls) -> list["BuiltinTools"]:
+    """Returns the minimal set of software engineering tools.
+
+    Includes run_command, view_file, create_file, edit_file, list_directory, and
+    search_directory.
+
+    Returns:
+        A list of minimal BuiltinTools.
+    """
+    return [
+        cls.RUN_COMMAND,
+        cls.VIEW_FILE,
+        cls.CREATE_FILE,
+        cls.EDIT_FILE,
+        cls.LIST_DIR,
+        cls.SEARCH_DIR,
+    ]
+
 
 class CapabilitiesConfig(pydantic.BaseModel):
   """General agent capability configuration.
@@ -417,9 +440,9 @@ class CapabilitiesConfig(pydantic.BaseModel):
     enable_subagents: Whether the agent can spawn and delegate to sub-agents.
     agent_behavior: Operational execution behavior for the agent. In particular,
       AgentBehavior.AUTONOMOUS incentivizes the agent to solve the task on their
-      own from start to finish while AgentBehavior.INTERACTIVE makes the agent
-      work collaboratively with a human, asking for clarifications and keeping
-      them in the loop if needed. Defaults to AgentBehavior.AUTONOMOUS.
+      own from start to finish, AgentBehavior.INTERACTIVE makes the agent work
+      collaboratively with a human, and AgentBehavior.MINIMAL prunes prompt
+      overhead for small-context models. Defaults to AgentBehavior.AUTONOMOUS.
     enabled_tools: Explicit allowlist of builtin tools to enable. Mutually
       exclusive with disabled_tools. When None, the harness defaults are used
       (all tools enabled). Disabled tools are removed from the model's context,
