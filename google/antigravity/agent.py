@@ -210,7 +210,7 @@ class Agent:
     """Returns the conversation identifier assigned by the runtime.
 
     Available after the session has started and at least one message has
-    been exchanged.  Pass this value back via SessionConfig.conversation_id
+    been exchanged.  Pass this value back via AgentConfig.conversation_id
     to resume from a saved session.  Returns None before the session starts.
     """
     if not self._conversation:

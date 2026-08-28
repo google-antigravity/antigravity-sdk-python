@@ -15,6 +15,7 @@
 """Tests for tool_runner module."""
 
 import asyncio
+import dataclasses
 import threading
 from typing import Optional, Union
 from unittest import mock
@@ -1012,6 +1013,70 @@ class SchemaGenerationTest(absltest.TestCase):
     self.assertEqual(tool(3, 4), 12)
     self.assertEqual(tool(x=5, y=6), 30)
 
+  def test_callable_object_context_injection(self):
+    """Verifies that callable class instances receive ToolContext injection."""
+    from google.antigravity.tools import tool_context  # pylint: disable=g-import-not-at-top
+
+    class CallableWithContext:
+
+      def __call__(
+          self, query: str, ctx: tool_context.ToolContext
+      ) -> str:
+        ctx.set_state("called_with", query)
+        return f"result:{query}"
+
+    tool = CallableWithContext()
+    runner = tool_runner.ToolRunner([tool])
+    ctx = tool_context.ToolContext(mock.MagicMock())
+    runner.set_context(ctx)
+
+    result = asyncio.run(runner.execute("CallableWithContext", query="hello"))
+    self.assertEqual(result, "result:hello")
+    self.assertEqual(ctx.get_state("called_with"), "hello")
+
+  def test_callable_object_argument_coercion(self):
+    """Verifies that callable class instances have their arguments coerced based on type hints."""
+
+    class CallableWithTypes:
+
+      def __call__(self, count: int, enabled: bool) -> tuple[int, bool]:
+        return count, enabled
+
+    tool = CallableWithTypes()
+    runner = tool_runner.ToolRunner([tool])
+
+    result = asyncio.run(
+        runner.execute("CallableWithTypes", count="42", enabled="true")
+    )
+    self.assertEqual(result, (42, True))
+
+  def test_dataclass_callable_object_context_and_coercion(self):
+    """Verifies dataclass tools with typed attributes resolve __call__ hints for context and coercion."""
+    from google.antigravity.tools import tool_context  # pylint: disable=g-import-not-at-top
+
+    @dataclasses.dataclass
+    class StatefulDataclassTool:
+      prefix: str
+      limit: int
+
+      def __call__(
+          self, query: str, count: int, ctx: tool_context.ToolContext
+      ) -> str:
+        ctx.set_state("called_count", count)
+        return f"{self.prefix}:{query}:{count}"
+
+    tool = StatefulDataclassTool(prefix="STORE", limit=100)
+    runner = tool_runner.ToolRunner([tool])
+    ctx = tool_context.ToolContext(mock.MagicMock())
+    runner.set_context(ctx)
+
+    result = asyncio.run(
+        runner.execute("StatefulDataclassTool", query="apples", count="25")
+    )
+    self.assertEqual(result, "STORE:apples:25")
+    self.assertEqual(ctx.get_state("called_count"), 25)
+
 
 if __name__ == "__main__":
   absltest.main()
+

@@ -40,6 +40,16 @@ from google.antigravity import types
 from google.antigravity.tools import tool_context as tool_context_module
 
 
+def _get_type_hints(target: Any) -> dict[str, Any]:
+  """Resolves type hints for functions, methods, and callable objects."""
+  if not inspect.isroutine(target) and hasattr(target, "__call__"):
+    target = target.__call__
+  try:
+    return typing.get_type_hints(target)
+  except (TypeError, NameError, AttributeError):
+    return {}
+
+
 def _find_context_param(fn: Callable[..., Any]) -> str | None:
   """Returns the name of the ToolContext-typed parameter, if any.
 
@@ -57,10 +67,7 @@ def _find_context_param(fn: Callable[..., Any]) -> str | None:
   target = fn
   while isinstance(target, ToolWithSchema):
     target = target.fn
-  try:
-    hints = typing.get_type_hints(target)
-  except (TypeError, NameError, AttributeError):
-    return None
+  hints = _get_type_hints(target)
 
   for name, ann in hints.items():
     if name == "return":
@@ -72,6 +79,23 @@ def _find_context_param(fn: Callable[..., Any]) -> str | None:
     if origin is typing.Union or origin is std_types.UnionType:
       if tool_context_module.ToolContext in typing.get_args(ann):
         return name
+
+  # Fallback to direct inspection of signature parameter annotations
+  try:
+    sig = inspect.signature(target)
+    for name, param in sig.parameters.items():
+      ann = param.annotation
+      if ann is inspect.Parameter.empty:
+        continue
+      if ann is tool_context_module.ToolContext or ann == "ToolContext":
+        return name
+      origin = typing.get_origin(ann)
+      if origin is typing.Union or origin is std_types.UnionType:
+        if tool_context_module.ToolContext in typing.get_args(ann):
+          return name
+  except (ValueError, TypeError):
+    pass
+
   return None
 
 
@@ -281,10 +305,7 @@ class ToolRunner:
     except (ValueError, TypeError):
       return kwargs
 
-    try:
-      hints = typing.get_type_hints(target)
-    except (TypeError, NameError, AttributeError):
-      hints = {}
+    hints = _get_type_hints(target)
 
     coerced = {}
     for name, param in sig.parameters.items():

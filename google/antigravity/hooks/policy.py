@@ -743,8 +743,8 @@ def enforce(
 
   Args:
     policies: The policies to enforce (can be nested).
-    mcp_servers: Optional registered MCP server configurations (unused; kept for
-      backward compatibility).
+    mcp_servers: Optional registered MCP server configurations to validate
+      against MCP-targeted policies.
 
   Returns:
     A PreToolCallDecideHook ready for registration.
