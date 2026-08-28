@@ -24,6 +24,7 @@ import pydantic
 
 from google.antigravity.proto import localharness_pb2
 from google.antigravity import types
+from google.antigravity.connections.local import struct_converter
 from google.antigravity.connections.local import types as local_types
 from google.antigravity.connections.local.hook_router import HookRouter
 from google.antigravity.connections.local.local_connection_config import BUILTIN_TOOL_PROTO_FIELDS
@@ -822,28 +823,44 @@ class LocalHarnessEventProcessor:
             error_message=result.error,
         )
       else:
-        # Split any media out of the result so it reaches the model as
-        # supplemental media instead of opaque base64 in response_json.
-        cleaned_value, media = _extract_media_from_result(result.result)
-        if media and cleaned_value is None:
-          cleaned_value = f"Returned {len(media)} media attachment(s)."
-        result_for_json = (
-            result.model_copy(update={"result": cleaned_value})
-            if media
-            else result
-        )
-        response = localharness_pb2.ToolResponse(
-            id=result.id,
-            response_json=json.dumps(self.tool_result_to_dict(result_for_json)),
-            supplemental_media=[
-                localharness_pb2.Media(
-                    mime_type=item.mime_type,
-                    data=item.data,
-                    description=item.description,
-                )
-                for item in media
-            ],
-        )
+        if struct_converter.has_proto_extensions(result.result):
+          res_data = (
+              result.result
+              if struct_converter.is_structured(result.result)
+              else {"result": result.result}
+          )
+          response = localharness_pb2.ToolResponse(
+              id=result.id,
+              response=struct_converter.to_struct(res_data),
+              response_json=json.dumps(
+                  struct_converter.to_json_fallback(res_data)
+              ),
+          )
+        else:
+          # Split any media out of the result so it reaches the model as
+          # supplemental media instead of opaque base64 in response_json.
+          cleaned_value, media = _extract_media_from_result(result.result)
+          if media and cleaned_value is None:
+            cleaned_value = f"Returned {len(media)} media attachment(s)."
+          result_for_json = (
+              result.model_copy(update={"result": cleaned_value})
+              if media
+              else result
+          )
+          response = localharness_pb2.ToolResponse(
+              id=result.id,
+              response_json=json.dumps(
+                  self.tool_result_to_dict(result_for_json)
+              ),
+              supplemental_media=[
+                  localharness_pb2.Media(
+                      mime_type=item.mime_type,
+                      data=item.data,
+                      description=item.description,
+                  )
+                  for item in media
+              ],
+          )
       input_event = localharness_pb2.InputEvent(tool_response=response)
       await self._send_input_event(input_event)
 

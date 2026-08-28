@@ -16,11 +16,15 @@
 
 import asyncio
 import json
+from typing import Any
 import unittest
 from unittest import mock
 
 from absl.testing import absltest
 from google.protobuf import json_format
+import pydantic
+
+from google.antigravity.proto import content_pb2
 from google.antigravity.proto import localharness_pb2
 from google.antigravity import types
 from google.antigravity.connections.local import event_processor
@@ -744,6 +748,110 @@ class LocalHarnessEventProcessorTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(len(step.tool_calls), 1)
     self.assertEqual(step.tool_calls[0].name, "my_remote_tool")
     self.assertEqual(step.type, types.StepType.TOOL_CALL)
+
+  async def test_send_tool_results_with_proto_extensions_dict(self):
+    """Verifies _send_tool_results handles ToolResult containing dict with proto extensions."""
+    send_mock = mock.AsyncMock()
+    processor = event_processor.LocalHarnessEventProcessor(
+        send_input_event_fn=send_mock
+    )
+    video = content_pb2.VideoContent(
+        mime_type=content_pb2.VideoContent.TYPE_MP4,
+        uri="https://example.com/video/123",
+    )
+    tool_result = types.ToolResult(
+        id="call_123",
+        name="test_tool",
+        result={"output": "done", "video": video},
+    )
+    await processor._send_tool_results([tool_result])
+
+    send_mock.assert_called_once()
+    input_event = send_mock.call_args[0][0]
+    resp = input_event.tool_response
+    self.assertEqual(resp.id, "call_123")
+    self.assertTrue(resp.HasField("response"))
+    fields_map = {f.name: f.value for f in resp.response.fields}
+    self.assertEqual(fields_map["output"].string_value, "done")
+    self.assertEqual(
+        fields_map["video"].content_value.video.uri,
+        "https://example.com/video/123",
+    )
+    self.assertEqual(
+        json.loads(resp.response_json)["video"],
+        {"$ref": "https://example.com/video/123"},
+    )
+
+  async def test_send_tool_results_with_proto_extensions_non_dict(self):
+    """Verifies _send_tool_results handles ToolResult containing non-dict with proto extensions."""
+    send_mock = mock.AsyncMock()
+    processor = event_processor.LocalHarnessEventProcessor(
+        send_input_event_fn=send_mock
+    )
+    video = content_pb2.VideoContent(
+        mime_type=content_pb2.VideoContent.TYPE_MP4,
+        uri="https://example.com/video/123",
+    )
+    tool_result = types.ToolResult(
+        id="call_456",
+        name="test_tool",
+        result=video,
+    )
+    await processor._send_tool_results([tool_result])
+
+    send_mock.assert_called_once()
+    input_event = send_mock.call_args[0][0]
+    resp = input_event.tool_response
+    self.assertEqual(resp.id, "call_456")
+    self.assertTrue(resp.HasField("response"))
+    fields_map = {f.name: f.value for f in resp.response.fields}
+    self.assertEqual(
+        fields_map["result"].content_value.video.uri,
+        "https://example.com/video/123",
+    )
+    self.assertEqual(
+        json.loads(resp.response_json)["result"],
+        {"$ref": "https://example.com/video/123"},
+    )
+
+  async def test_send_tool_results_with_proto_extensions_pydantic_model(self):
+    """Verifies _send_tool_results handles ToolResult containing Pydantic model with proto extensions without wrapping."""
+
+    class ToolOutput(pydantic.BaseModel):
+      model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+      output: str
+      video: Any
+
+    send_mock = mock.AsyncMock()
+    processor = event_processor.LocalHarnessEventProcessor(
+        send_input_event_fn=send_mock
+    )
+    video = content_pb2.VideoContent(
+        mime_type=content_pb2.VideoContent.TYPE_MP4,
+        uri="https://example.com/video/123",
+    )
+    tool_result = types.ToolResult(
+        id="call_789",
+        name="test_tool",
+        result=ToolOutput(output="done", video=video),
+    )
+    await processor._send_tool_results([tool_result])
+
+    send_mock.assert_called_once()
+    input_event = send_mock.call_args[0][0]
+    resp = input_event.tool_response
+    self.assertEqual(resp.id, "call_789")
+    self.assertTrue(resp.HasField("response"))
+    fields_map = {f.name: f.value for f in resp.response.fields}
+    self.assertEqual(fields_map["output"].string_value, "done")
+    self.assertEqual(
+        fields_map["video"].content_value.video.uri,
+        "https://example.com/video/123",
+    )
+    self.assertEqual(
+        json.loads(resp.response_json)["video"],
+        {"$ref": "https://example.com/video/123"},
+    )
 
 
 def _make_policy_decision_request(
