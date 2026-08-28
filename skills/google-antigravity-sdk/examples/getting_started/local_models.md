@@ -39,6 +39,7 @@ pip install litert-lm
 > [!IMPORTANT]
 > `LiteRTAgentConfig` requires `litert-lm>=0.15.0`. If `0.15.0` is not yet
 > available on PyPI, install the nightly build instead:
+> 
 > ```bash
 > pip install litert-lm-nightly
 > ```
@@ -60,6 +61,7 @@ litert-lm import \
 
 > [!TIP]
 > On macOS, if `litert-lm import` fails with an SSL certificate error, run:
+> 
 > ```bash
 > pip install certifi
 > export SSL_CERT_FILE=$(python3 -c "import certifi; print(certifi.where())")
@@ -91,7 +93,7 @@ async def main():
         ),
         max_context_tokens=65536,
         tools=[compute_secret_hash],
-    )
+    ).lightweight()
     async with Agent(config) as agent:
         response = await agent.chat("Compute the secret hash for 'Hello'.")
         async for token in response:
@@ -107,11 +109,21 @@ asyncio.run(main())
 
 ### Key Configuration Notes
 
-| Setting | Detail |
-|---|---|
-| `max_context_tokens` | Set to `65536` to accommodate most local hardware setups. The model supports larger windows, but 64k balances capability with memory constraints. Default is `4096`. |
-| GPU acceleration | Auto-detected. Apple Silicon uses **Metal**; Linux/Windows uses **CUDA**. |
-| CPU-only fallback | If no GPU is available, set `backend='cpu'` in the config or set the environment variable `ANTIGRAVITY_ALLOW_CPU=1`. |
+| Setting                 | Detail                                             |
+| ----------------------- | -------------------------------------------------- |
+| `.lightweight()` preset | Recommended for local execution. Automatically     |
+:                         : selects core development tools, prunes system      :
+:                         : prompt overhead, disables subagents, and           :
+:                         : configures context compaction for local models.    :
+| `max_context_tokens`    | Set to `65536` to accommodate most local hardware  |
+:                         : setups. The model supports larger windows, but 64k :
+:                         : balances capability with memory constraints.       :
+:                         : Default is `4096`.                                 :
+| GPU acceleration        | Auto-detected. Apple Silicon uses **Metal**;       |
+:                         : Linux/Windows uses **CUDA**.                       :
+| CPU-only fallback       | If no GPU is available, set `backend='cpu'` in the |
+:                         : config or set the environment variable             :
+:                         : `ANTIGRAVITY_ALLOW_CPU=1`.                         :
 
 > [!NOTE]
 > On Apple Silicon, the first execution compiles GPU graph shaders for Metal.
@@ -122,8 +134,8 @@ asyncio.run(main())
 
 ## Path 2: OpenAI-Compatible Server (Ollama, LM Studio)
 
-If you already run a local model server that exposes an OpenAI-compatible API, point
-the SDK at it with `LocalOpenAIAgentConfig`.
+If you already run a local model server that exposes an OpenAI-compatible API,
+point the SDK at it with `LocalOpenAIAgentConfig(...).lightweight()`:
 
 ```python
 import asyncio
@@ -134,7 +146,7 @@ async def main():
     config = LocalOpenAIAgentConfig(
         model="gemma2:27b",
         base_url="http://localhost:11434/v1",  # Ollama default
-    )
+    ).lightweight()
     async with Agent(config) as agent:
         response = await agent.chat("Hello!")
         async for token in response:

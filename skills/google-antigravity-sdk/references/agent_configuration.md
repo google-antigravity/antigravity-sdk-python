@@ -259,6 +259,11 @@ additional config classes are available:
 -   `LocalOpenAIAgentConfig`: For connecting to any OpenAI-compatible local
     server (e.g., Ollama, LM Studio).
 
+Both config classes support the `.lightweight()` method (e.g.,
+`LiteRTAgentConfig(...).lightweight()`), which automatically configures core
+development tools, prunes system instructions for smaller context windows,
+disables subagents, and tunes context compaction.
+
 For full setup instructions, hardware requirements, and configuration details,
 see [local_models.md](local_models.md).
 

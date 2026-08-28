@@ -55,6 +55,10 @@ All standard `AgentConfig` parameters are also supported: `system_instructions`,
 
 ### Basic Example
 
+For local execution, prefer `.lightweight()` to minimize prompt overhead,
+restrict tools to core coding capabilities, disable subagents, and configure
+context compaction for local models:
+
 ```python
 import os
 
@@ -64,7 +68,7 @@ config = LiteRTAgentConfig(
     model_path=os.path.expanduser(
         "~/.litert-lm/models/gemma4-26b/model.litertlm"
     ),
-)
+).lightweight()
 async with Agent(config=config) as agent:
     response = await agent.chat("Explain Python generators.")
     print(response)
@@ -161,7 +165,8 @@ Start Ollama and pull a model first:
 ollama pull gemma3:4b
 ```
 
-Then create an agent:
+Then create an agent (using `.lightweight()` for optimized prompt overhead and
+core coding tools):
 
 ```python
 from google.antigravity import Agent, LocalOpenAIAgentConfig
@@ -169,7 +174,7 @@ from google.antigravity import Agent, LocalOpenAIAgentConfig
 config = LocalOpenAIAgentConfig(
     model="gemma3:4b",
     base_url="http://localhost:11434/v1",
-)
+).lightweight()
 async with Agent(config=config) as agent:
     response = await agent.chat("What is the capital of France?")
     print(response)
@@ -183,7 +188,7 @@ from google.antigravity import Agent, LocalOpenAIAgentConfig
 config = LocalOpenAIAgentConfig(
     model="gemma-4-26B-A4B-it",
     base_url="http://localhost:1234/v1",
-)
+).lightweight()
 async with Agent(config=config) as agent:
     response = await agent.chat("Summarize this document.")
     print(response)
