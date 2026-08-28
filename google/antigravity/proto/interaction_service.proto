@@ -15,5 +15,3 @@
 edition = "2024";
 
 package genai;
-
-service InteractionService {}
