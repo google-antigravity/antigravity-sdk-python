@@ -93,6 +93,7 @@ message CreateInteractionEvent {
       (gaos.parsing.json_only_discriminator) = "type"
     ];
   }
+  string interaction_id = 22;
   string system_instruction = 5;
   repeated .genai.Content developer_instructions = 20;
   .genai.AppendedDeveloperInstructions appended_developer_instructions = 21;
