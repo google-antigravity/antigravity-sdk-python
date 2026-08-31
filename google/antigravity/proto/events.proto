@@ -16,12 +16,15 @@ edition = "2024";
 
 package genai;
 
+import "google/antigravity/proto/agents.proto";
 import "google/antigravity/proto/content.proto";
 import "google/antigravity/proto/environment.proto";
 import "google/antigravity/proto/hooks.proto";
 import "google/antigravity/proto/interaction.proto";
+import "google/antigravity/proto/models.proto";
 import "google/antigravity/proto/sse_events.proto";
 import "google/antigravity/proto/steps.proto";
+import "google/antigravity/proto/tools.proto";
 import "google/antigravity/proto/genai_json_annotations.proto";
 
 option features = { field_presence : IMPLICIT enum_type : OPEN utf8_validation : NONE };
@@ -73,6 +76,14 @@ message ServerEvent {
   .genai.Interaction.Usage usage = 12;
 }
 message CreateInteractionEvent {
+  oneof config {
+    option (gaos.parsing.subtype_source) = true;
+
+    .genai.ModelInteraction model_interaction = 3
+        [(gaos.parsing.json_discriminator) = "model"];
+    .genai.AgentInteraction agent_interaction = 4
+        [(gaos.parsing.json_discriminator) = "agent"];
+  }
   oneof environment {
     option (gaos.parsing.is_union) = true;
 
@@ -82,9 +93,15 @@ message CreateInteractionEvent {
       (gaos.parsing.json_only_discriminator) = "type"
     ];
   }
+  string system_instruction = 5;
   repeated .genai.Content developer_instructions = 20;
   .genai.AppendedDeveloperInstructions appended_developer_instructions = 21;
+  string previous_interaction_id = 15;
+  repeated .genai.Tool tools = 7;
   extensions 1000 to max;
+}
+message InteractionCreatedEvent {
+  string interaction_id = 1;
 }
 message Payload {
   oneof event_type {

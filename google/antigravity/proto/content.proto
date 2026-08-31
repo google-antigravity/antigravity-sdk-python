@@ -230,6 +230,8 @@ message Value {
     .genai.Struct struct_value = 5;
     .genai.ListValue list_value = 6;
     .genai.Content content_value = 7;
+    .genai.Function function_value = 9
+        [(gaos.parsing.json_discriminator_value) = "function"];
   }
 }
 message ListValue {
