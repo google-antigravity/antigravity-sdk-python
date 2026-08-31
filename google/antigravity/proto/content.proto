@@ -111,6 +111,7 @@ message AudioContent {
     TYPE_MULAW = 13 [(gaos.parsing.enum_value_name) = "audio/mulaw"];
     TYPE_VIDEO_AUDIO_S16LE = 14
         [(gaos.parsing.enum_value_name) = "video/audio/s16le"];
+    TYPE_WEBM = 15 [(gaos.parsing.enum_value_name) = "audio/webm"];
   }
   oneof data_or_uri {
     bytes data = 2;
