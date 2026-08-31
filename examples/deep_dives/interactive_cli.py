@@ -44,7 +44,7 @@ from google.antigravity.utils import interactive  # pyrefly: ignore[missing-modu
 from google.antigravity.utils.interactive import async_input  # pyrefly: ignore[missing-import]
 
 _MODEL_NAME = flags.DEFINE_string(
-    "model_name", "gemini-3.7-flash", "Gemini model name."
+    "model_name", "gemini-3.8-flash", "Gemini model name."
 )
 _SYSTEM_INSTRUCTION = flags.DEFINE_string(
     "system_instruction", None, "System instruction text for the agent."

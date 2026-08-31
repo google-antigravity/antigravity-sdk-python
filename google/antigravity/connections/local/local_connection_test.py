@@ -1451,7 +1451,7 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
             types.SubagentConfig(
                 name="minimal_subagent",
                 description="A subagent that runs in minimal behavior.",
-                model="gemini-3.7-flash",
+                model="gemini-3.8-flash",
                 capabilities=types.SubagentCapabilities(
                     agent_behavior=types.AgentBehavior.MINIMAL
                 ),
@@ -1539,14 +1539,14 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     """Verifies that None fields on ModelConfig are not set on the proto."""
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.GeminiAPIEndpoint(),
         )
     ]
     strategy = self._make_strategy(models=models)
     config = strategy._build_harness_config()
-    self.assertEqual(config.models[0].name, "gemini-3.7-flash")
+    self.assertEqual(config.models[0].name, "gemini-3.8-flash")
     # api_key should not be set (proto default empty string).
     self.assertEqual(config.models[0].gemini_api_endpoint.api_key, "")
 
@@ -2169,7 +2169,7 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     """Verifies that Vertex configuration fields propagate to proto."""
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.VertexEndpoint(
                 project="my-project",
@@ -2667,7 +2667,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     """
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
         )
     ]
@@ -2685,7 +2685,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     """
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.GeminiAPIEndpoint(api_key=None),
         )
@@ -2701,7 +2701,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     """Verifies strategy raises validation error when Vertex is set but no project/location provided."""
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.VertexEndpoint(project=None, location=None),
         )
@@ -2728,7 +2728,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
 
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.VertexEndpoint(
                 project="my-project",
@@ -2760,7 +2760,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     mock_proc.stdout.read.return_value = b""
     mock_popen.return_value = mock_proc
 
-    cfg = local_connection_config.LocalAgentConfig(model="gemini-3.7-flash")
+    cfg = local_connection_config.LocalAgentConfig(model="gemini-3.8-flash")
     self.assertIsInstance(cfg.models[0].endpoint, types.VertexEndpoint)
     self.assertEqual(cfg.models[0].endpoint.project, "env-project")
     self.assertEqual(cfg.models[0].endpoint.location, "env-location")
@@ -2774,7 +2774,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
   )
   def test_bare_config_routes_to_vertex_via_use_enterprise_env(self):
     """USE_ENTERPRISE alone also triggers Vertex routing (GEAP recipe)."""
-    cfg = local_connection_config.LocalAgentConfig(model="gemini-3.7-flash")
+    cfg = local_connection_config.LocalAgentConfig(model="gemini-3.8-flash")
     self.assertIsInstance(cfg.models[0].endpoint, types.VertexEndpoint)
 
   @mock.patch.dict(
@@ -2872,7 +2872,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     """Verifies that api_key on VertexEndpoint propagates to localharness proto."""
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.VertexEndpoint(api_key="express-key"),
         )
@@ -3011,7 +3011,7 @@ class LocalConnectionStrategyApiKeyTest(unittest.IsolatedAsyncioTestCase):
     mock_popen.return_value = mock_proc
     models = [
         types.ModelTarget(
-            name="gemini-3.7-flash",
+            name="gemini-3.8-flash",
             types=[types.ModelType.TEXT],
             endpoint=types.GeminiAPIEndpoint(api_key="explicit-key"),
         )
@@ -4530,10 +4530,10 @@ class LocalAgentConfigTest(absltest.TestCase):
 
   def test_lightweight_method(self):
     config = local_connection_config.LocalAgentConfig(
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
     ).lightweight()
     self.assertIsInstance(config, local_connection_config.LocalAgentConfig)
-    self.assertEqual(config.model, "gemini-3.7-flash")
+    self.assertEqual(config.model, "gemini-3.8-flash")
     self.assertEqual(
         config.capabilities.agent_behavior, types.AgentBehavior.MINIMAL
     )
