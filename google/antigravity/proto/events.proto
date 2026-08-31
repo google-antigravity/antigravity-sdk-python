@@ -17,6 +17,7 @@ edition = "2024";
 package genai;
 
 import "google/antigravity/proto/content.proto";
+import "google/antigravity/proto/environment.proto";
 import "google/antigravity/proto/hooks.proto";
 import "google/antigravity/proto/interaction.proto";
 import "google/antigravity/proto/sse_events.proto";
@@ -70,6 +71,20 @@ message ServerEvent {
   int64 seq_num = 10;
   int64 timestamp_micros = 11;
   .genai.Interaction.Usage usage = 12;
+}
+message CreateInteractionEvent {
+  oneof environment {
+    option (gaos.parsing.is_union) = true;
+
+    string env_id = 8;
+    .genai.EnvironmentConfig remote_environment = 9 [
+      (gaos.parsing.json_discriminator_value) = "remote",
+      (gaos.parsing.json_only_discriminator) = "type"
+    ];
+  }
+  repeated .genai.Content developer_instructions = 20;
+  .genai.AppendedDeveloperInstructions appended_developer_instructions = 21;
+  extensions 1000 to max;
 }
 message Payload {
   oneof event_type {

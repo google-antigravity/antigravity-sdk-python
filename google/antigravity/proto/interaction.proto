@@ -96,10 +96,6 @@ message Interaction {
     INCOMPLETE = 11;
     BUDGET_EXCEEDED = 12;
   }
-  oneof system_instruction_config {
-    string system_instruction = 9;
-    .genai.SystemInstructions system_instructions = 63;
-  }
   oneof input {
     option (gaos.parsing.is_union) = true;
 
@@ -145,6 +141,7 @@ message Interaction {
   string updated = 44;
   string role = 38;
   repeated .genai.Content outputs = 7;
+  string system_instruction = 9;
   repeated .genai.Tool tools = 10;
   .genai.Interaction.Usage usage = 16;
   repeated .genai.ResponseModality response_modalities = 29;
@@ -161,25 +158,11 @@ message InteractionMetadata {
   string created = 3;
   string updated = 4;
 }
-message SystemInstructions {
-  oneof type {
-    .genai.CustomSystemInstructions custom = 1;
-    .genai.AppendedSystemInstructions appended = 2;
-  }
-}
-message CustomSystemInstructions {
-  message Part {
-    oneof part {
-      string text = 1;
-    }
-  }
-  repeated .genai.CustomSystemInstructions.Part part = 1;
-}
-message AppendedSystemInstructions {
+message AppendedDeveloperInstructions {
   message Section {
     string title = 1;
     string content = 2;
   }
   string custom_identity = 1;
-  repeated .genai.AppendedSystemInstructions.Section appended_sections = 2;
+  repeated .genai.AppendedDeveloperInstructions.Section appended_sections = 2;
 }
