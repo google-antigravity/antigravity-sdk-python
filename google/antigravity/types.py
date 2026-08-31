@@ -943,8 +943,9 @@ class Step(pydantic.BaseModel):
       steps per turn may have this flag set; consumers that want only the last
       response should iterate fully.
     structured_output: The structured output extracted from the finish step.
-    usage_metadata: Token usage for this specific step's model invocation, or
-      None if this step did not involve a model call.
+    usage_metadata: (Deprecated) Token usage for this specific step's model
+      invocation. Deprecated in favor of ChatResponse.usage_metadata (turn-level
+      usage) and agent.conversation.total_usage (session cumulative usage).
   """
 
   id: str = ""
@@ -964,7 +965,16 @@ class Step(pydantic.BaseModel):
   error: str = ""
   is_complete_response: bool | None = None
   structured_output: Any | None = None
-  usage_metadata: UsageMetadata | None = None
+  usage_metadata: UsageMetadata | None = pydantic.Field(
+      default=None,
+      deprecated=(
+          "Step.usage_metadata is deprecated and will be removed in a future"
+          " release. Token usage is emitted per model invocation and does not"
+          " map 1:1 to individual execution steps. Use"
+          " ChatResponse.usage_metadata for turn-level usage or"
+          " agent.conversation.total_usage for cumulative session usage."
+      ),
+  )
 
   model_config = pydantic.ConfigDict(extra="allow")
 
