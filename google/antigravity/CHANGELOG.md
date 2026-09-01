@@ -7,6 +7,84 @@ All notable changes to the Google Antigravity Python SDK will be documented in t
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.16] - 2026-08-31
+
+This release updates the default model for new agents to `gemini-3.8-flash` for higher quality and reasoning capabilities, alongside improving agent configuration expressiveness, performance for small and local models, and platform connectivity. Developers can now easily configure lightweight agents optimized for local environments via a new fluent method, connect to Vertex AI with API keys in Express mode, and benefit from expanded support for custom tool implementations (functors, dataclasses).
+
+### 🌟 Key Highlights
+- **Default Model Update to Gemini 3.8 Flash**: The default model for new agents and configurations has been updated to `gemini-3.8-flash`, delivering higher reasoning quality and stronger task performance. Developers can override this default by specifying `model` in their configuration:
+  ```python
+  from antigravity.connections.local import LocalAgentConfig
+
+  config = LocalAgentConfig(model="gemini-3.7-flash")
+  ```
+
+- **Optimized Lightweight Agent Configuration**: New `.lightweight()` method on agent configurations (including `LocalAgentConfig`) and its subclasses applies preset optimizations for smaller, local-running models. This configures a minimal tool set, minimal system prompting, and disables background subagents to reduce context exhaustion and latency.
+  ```python
+  import os
+  from antigravity.connections.local import LiteRTAgentConfig
+
+  config = LiteRTAgentConfig(
+      model_path=os.path.expanduser(
+          "~/.litert-lm/models/gemma4-26b/model.litertlm"
+      )
+  ).lightweight()
+  ```
+
+- **Vertex AI Express Mode (API Key Support)**: Developers can now connect to Vertex AI using Express mode by providing an API key directly on `LocalAgentConfig(vertex=True, api_key="...")`, simplifying authentication without needing full GCP project/location ADC setup.
+  ```python
+  from antigravity.connections.local import LocalAgentConfig
+
+  # Express Mode using API Key
+  config = LocalAgentConfig(vertex=True, api_key="AIza...")
+  ```
+
+- **Support for Callable Class and Dataclass Tools**: The SDK's tool runner, `ToolRunner`, now correctly inspects and executes tools defined as callable class instances (functors) and dataclass methods, enhancing flexibility for custom tool implementation.
+  ```python
+  class MyTool:
+    def __call__(self, context: ToolContext, *args):
+        # ... tool logic
+        pass
+
+  agent.config.add_tool(MyTool())
+  ```
+
+- **Stop Hook Integration**: Agents now support the `StopHook` lifecycle hook, which is triggered when an agent's execution is externally requested to stop. This enables developers to implement custom cleanup, messaging, or resource logging actions upon termination.
+  ```python
+  class CleanupHook(hooks.StopHook):
+    def on_stop(self, agent: Agent):
+      print("Agent stopped. Performing cleanup.")
+  ```
+
+### 📋 Detailed Changes
+
+#### Model & Default Changes
+- **Default Model Update**: The default model for new agents and configurations is now `gemini-3.8-flash`. This change provides higher output quality and reasoning capabilities. To override this default, simply specify the `model` parameter during agent configuration:
+  ```python
+  from antigravity.connections.local import LocalAgentConfig
+  
+  config = LocalAgentConfig(model="gemini-3.7-flash")
+  ```
+
+#### Features & Enhancements
+- **OS Sandbox Opt-in for Commands**: Added an `enable_sandbox` field to `RunCommandConfig` to allow developers to optionally execute terminal commands within an OS-level sandbox environment for enhanced security.
+  ```python
+  from antigravity.types import RunCommandConfig
+  
+  config.capabilities.run_command_config = RunCommandConfig(
+      enable_sandbox=True
+  )
+  ```
+- **Tool Invocation Argument Flexibility**: `ToolWithSchema` and public callable proxies now accept both positional (`*args`) and keyword arguments (`**kwargs`) when called, matching standard Python function calling conventions.
+- **Support for `genai.Content` Media**: Introduced a structconverter to support media blocks from `genai.Content` objects within the SDK, enabling richer multimodal interactions.
+- **MCP Compatibility Widening**: The SDK now supports both `mcp>=1.0` and `mcp<3.0` dependencies, ensuring compatibility with new and existing MCP environments.
+
+#### Bug Fixes & Deprecations
+- **Agent Behavior Fix for Interactive Examples**: Corrected an issue where interactive SDK examples (`interactive_cli.py`, `human_in_the_loop.py`, etc.) were not consistently configured with `AgentBehavior.INTERACTIVE`, ensuring proper question asking and hook activation.
+- **Tool Runner Execution Environment Fix**: Resolved a failure in exported SDK examples (e.g., in CI environments) where `stdio` MCP servers were executed improperly. Child processes now correctly use `sys.executable` to run within the active Python virtual environment.
+
+- **DEPRECATION: Step Token Usage**: `Step.usage_metadata` has been deprecated. Usage reporting is now consolidated at the turn-level (`ChatResponse.usage_metadata`) and session-level (`agent.conversation.total_usage`) to provide a more accurate metric, as a single model invocation often maps to multiple execution steps.
+
 ## [0.1.15] - 2026-08-25
 
 Antigravity Python SDK v0.1.15 introduces subagent-exclusive tool scoping to reduce context overhead, adds an `on_compaction` lifecycle hook for observing context checkpointing, expands platform compatibility with Alpine Linux musl wheels, resolves workspace path normalization and custom Vertex endpoint routing, and adds universal JSON Schema normalization for custom Python tools when targeting local OpenAI-compatible LLM endpoints.
