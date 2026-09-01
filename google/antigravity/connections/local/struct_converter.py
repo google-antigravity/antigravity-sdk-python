@@ -18,17 +18,28 @@ from collections import abc
 import dataclasses
 from typing import Any, cast
 
+from google.protobuf import message
+
 from google.antigravity.proto import content_pb2
 
-_CONTENT_DESCRIPTOR_NAMES = {
-    "Content",
-    "VideoContent",
-    "AudioContent",
-    "ImageContent",
-    "DocumentContent",
-    "TextContent",
-    "ContentIngestionOptions",
-}
+# Automatically discover all Content and media component Message classes from
+# content.proto:
+_CONTENT_PROTO_TYPES: tuple[type[Any], ...] = tuple(
+    v
+    for v in content_pb2.__dict__.values()
+    if isinstance(v, type)
+    and issubclass(v, message.Message)
+    and getattr(v, "DESCRIPTOR", None) is not None
+    and v.DESCRIPTOR.file.name.endswith("content.proto")
+    and (
+        v.DESCRIPTOR.name.endswith("Content")
+        or v.DESCRIPTOR.name.endswith("Options")
+    )
+)
+
+_CONTENT_DESCRIPTOR_NAMES: frozenset[str] = frozenset(
+    cls.DESCRIPTOR.name for cls in _CONTENT_PROTO_TYPES
+)
 
 _MEDIA_TYPE_MAP = {
     content_pb2.VideoContent: "video",
@@ -49,18 +60,7 @@ _MEDIA_DESCRIPTOR_MAP = {
 
 def _is_content_proto(obj: Any) -> bool:
   """Returns True if obj is an interactions Content proto or media component."""
-  if isinstance(
-      obj,
-      (
-          content_pb2.Content,
-          content_pb2.VideoContent,
-          content_pb2.AudioContent,
-          content_pb2.ImageContent,
-          content_pb2.DocumentContent,
-          content_pb2.TextContent,
-          content_pb2.ContentIngestionOptions,
-      ),
-  ):
+  if isinstance(obj, _CONTENT_PROTO_TYPES):
     return True
   if (
       hasattr(obj, "DESCRIPTOR")

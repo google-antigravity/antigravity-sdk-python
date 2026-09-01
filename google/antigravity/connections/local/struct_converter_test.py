@@ -268,53 +268,14 @@ class StructConverterTest(absltest.TestCase):
         {"output": "done", "video": {"$ref": "https://example.com/video/123"}},
     )
 
-  def test_dict_to_struct_video_content_with_ingestion_options(self):
-    ingestion_options = content_pb2.ContentIngestionOptions()
-    v_opts = ingestion_options.processing_options.parsing_options.video_options
-    v_opts.fps = 2.0
-    v_opts.start_offset.seconds = 10
-    v_opts.end_offset.seconds = 20
-    ingestion_options.verbalization_options.SetInParent()
-    ingestion_options.file_metadata.SetInParent()
-
-    video = content_pb2.VideoContent(
-        mime_type=content_pb2.VideoContent.TYPE_MP4,
-        uri="https://example.com/video/123",
-        ingestion_options=ingestion_options,
-    )
-    data = {"output": "done", "video": video}
-    struct_pb = struct_converter.dict_to_struct(data)
-    fields_map = {f.name: f.value for f in struct_pb.fields}
-    vid_content = fields_map["video"].content_value.video
-    self.assertTrue(vid_content.HasField("ingestion_options"))
-    ing_opts = vid_content.ingestion_options
-    v_opts = ing_opts.processing_options.parsing_options.video_options
-    self.assertEqual(v_opts.fps, 2.0)
-    self.assertEqual(v_opts.start_offset.seconds, 10)
-    self.assertEqual(v_opts.end_offset.seconds, 20)
-    self.assertTrue(ing_opts.HasField("verbalization_options"))
-    self.assertTrue(ing_opts.HasField("file_metadata"))
-
-  def test_dict_to_struct_nested_structs_and_lists_with_ingestion_options(self):
-    ingestion_options = content_pb2.ContentIngestionOptions()
-    v_opts = ingestion_options.processing_options.parsing_options.video_options
-    v_opts.fps = 5.0
-    v_opts.start_offset.seconds = 2
-    v_opts.end_offset.seconds = 12
-    ingestion_options.verbalization_options.SetInParent()
-    ingestion_options.file_metadata.SetInParent()
-
+  def test_dict_to_struct_nested_structs_and_lists(self):
     video = content_pb2.VideoContent(
         mime_type=content_pb2.VideoContent.TYPE_MP4,
         uri="https://example.com/video/nested_123",
-        ingestion_options=ingestion_options,
     )
-    img_ingestion_options = content_pb2.ContentIngestionOptions()
-    img_ingestion_options.file_metadata.SetInParent()
     image = content_pb2.ImageContent(
         mime_type=content_pb2.ImageContent.TYPE_JPEG,
         uri="http://example.com/img.jpg",
-        ingestion_options=img_ingestion_options,
     )
 
     data = {
@@ -337,18 +298,9 @@ class StructConverterTest(absltest.TestCase):
     self.assertLen(media_list, 2)
     vid_val = media_list[0].content_value.video
     self.assertEqual(vid_val.uri, "https://example.com/video/nested_123")
-    self.assertTrue(vid_val.HasField("ingestion_options"))
-
-    v_opts = (
-        vid_val.ingestion_options.processing_options.parsing_options.video_options
-    )
-    self.assertEqual(v_opts.fps, 5.0)
-    self.assertEqual(v_opts.start_offset.seconds, 2)
-    self.assertEqual(v_opts.end_offset.seconds, 12)
 
     img_val = media_list[1].content_value.image
     self.assertEqual(img_val.uri, "http://example.com/img.jpg")
-    self.assertTrue(img_val.ingestion_options.HasField("file_metadata"))
 
     fallback = struct_converter.to_json_fallback(data)
     self.assertEqual(
@@ -365,40 +317,43 @@ class StructConverterTest(absltest.TestCase):
         },
     )
 
-  def test_dict_to_struct_all_media_content_types_with_ingestion_options(self):
-    ing_opts = content_pb2.ContentIngestionOptions()
-    ing_opts.verbalization_options.SetInParent()
-    video = content_pb2.VideoContent(uri="vid_uri", ingestion_options=ing_opts)
-    audio = content_pb2.AudioContent(uri="aud_uri", ingestion_options=ing_opts)
-    image = content_pb2.ImageContent(uri="img_uri", ingestion_options=ing_opts)
-    document = content_pb2.DocumentContent(
-        uri="doc_uri", ingestion_options=ing_opts
-    )
+  def test_dict_to_struct_all_media_content_types(self):
+    video = content_pb2.VideoContent(uri="vid_uri")
+    audio = content_pb2.AudioContent(uri="aud_uri")
+    image = content_pb2.ImageContent(uri="img_uri")
+    document = content_pb2.DocumentContent(uri="doc_uri")
 
     data = {"v": video, "a": audio, "i": image, "d": document}
     struct_pb = struct_converter.dict_to_struct(data)
     fields_map = {f.name: f.value for f in struct_pb.fields}
 
-    self.assertTrue(
-        fields_map["v"].content_value.video.ingestion_options.HasField(
-            "verbalization_options"
-        )
+    self.assertEqual(fields_map["v"].content_value.video.uri, "vid_uri")
+    self.assertEqual(fields_map["a"].content_value.audio.uri, "aud_uri")
+    self.assertEqual(fields_map["i"].content_value.image.uri, "img_uri")
+    self.assertEqual(fields_map["d"].content_value.document.uri, "doc_uri")
+
+  def test_dynamic_content_proto_discovery(self):
+    """Verifies that Content proto types and descriptor names are dynamically discovered."""
+    self.assertIn(content_pb2.Content, struct_converter._CONTENT_PROTO_TYPES)
+    self.assertIn(
+        content_pb2.VideoContent, struct_converter._CONTENT_PROTO_TYPES
     )
-    self.assertTrue(
-        fields_map["a"].content_value.audio.ingestion_options.HasField(
-            "verbalization_options"
-        )
+    self.assertIn(
+        content_pb2.AudioContent, struct_converter._CONTENT_PROTO_TYPES
     )
-    self.assertTrue(
-        fields_map["i"].content_value.image.ingestion_options.HasField(
-            "verbalization_options"
-        )
+    self.assertIn(
+        content_pb2.ImageContent, struct_converter._CONTENT_PROTO_TYPES
     )
-    self.assertTrue(
-        fields_map["d"].content_value.document.ingestion_options.HasField(
-            "verbalization_options"
-        )
+    self.assertIn(
+        content_pb2.DocumentContent, struct_converter._CONTENT_PROTO_TYPES
     )
+    self.assertIn(
+        content_pb2.TextContent, struct_converter._CONTENT_PROTO_TYPES
+    )
+    self.assertIn("Content", struct_converter._CONTENT_DESCRIPTOR_NAMES)
+    self.assertIn("VideoContent", struct_converter._CONTENT_DESCRIPTOR_NAMES)
+    self.assertNotIn("Struct", struct_converter._CONTENT_DESCRIPTOR_NAMES)
+    self.assertNotIn("Value", struct_converter._CONTENT_DESCRIPTOR_NAMES)
 
   def test_to_json_fallback_struct_listvalue_value_and_unrecognized(self):
     struct_pb = content_pb2.Struct(
