@@ -51,8 +51,11 @@ if __name__ == "__main__":
 ## Key Concepts
 
 * **`BudgetConfig`**: Attached to `LocalAgentConfig(budget_config=...)` or `AgentConfig.budget_config` to govern entire agent sessions.
+* **`BudgetScope`**: Controls the evaluation window for budget thresholds:
+  * `BudgetScope.LIFETIME` (default): Thresholds are evaluated against cumulative spend across the entire trajectory starting from step 0.
+  * `BudgetScope.FORWARD_LOOKING`: Thresholds are evaluated against delta usage starting from when the budget was configured or the session was resumed, enabling fresh budget grants when continuing conversations.
 * **Invocation Dials**:
-  * `max_model_calls`: Guards against runaway reasoning cascades by capping generator invocations across the session.
+  * `max_model_calls`: Guards against runaway reasoning cascades by capping generator invocations across the configured scope.
   * `max_tool_calls`: Proactively intercepts and aborts repeated or looping tool calls once the ceiling is reached.
 * **Token Budget Dials**:
   * `max_input_tokens`: Evaluated proactively before dispatch. Calculates net uncached prompt tokens (`prompt_tokens - cached_tokens`) to ensure predictable limits.

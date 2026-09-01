@@ -75,6 +75,7 @@ __all__ = [
     "StepSource",
     "StepTarget",
     "StepStatus",
+    "BudgetScope",
     "BudgetConfig",
     "StopReason",
     "Step",
@@ -858,22 +859,38 @@ class SessionContinuationMode(str, enum.Enum):
   CREATE_ONLY = "create_only"
 
 
+class BudgetScope(str, enum.Enum):
+  """Evaluation scope for budget limits and caps.
+
+  Attributes:
+    LIFETIME: Budget is evaluated against cumulative spend from the start of the
+      session (step 0).
+    FORWARD_LOOKING: Budget is evaluated against spend starting from when the
+      budget was configured or the session was resumed.
+  """
+
+  LIFETIME = "LIFETIME"
+  FORWARD_LOOKING = "FORWARD_LOOKING"
+
+
 class BudgetConfig(pydantic.BaseModel):
   """Configuration for session-level budget limits and caps.
 
   Attributes:
     max_model_calls: Maximum number of model invocations (reasoning steps /
-      generator calls) permitted across the session.
-    max_tool_calls: Maximum number of tool invocations permitted across the
-      session, regardless of tool source.
-    max_input_tokens: Maximum net uncached input tokens permitted across the
-      session (calculated as prompt tokens minus cached content tokens across
-      all turns).
-    max_output_tokens: Maximum output tokens permitted across the session
-      (candidates + thoughts).
-    max_total_tokens: Maximum total net tokens permitted across the session
-      (calculated as net uncached input tokens + output tokens across all
-      turns).
+      generator calls) permitted within the configured scope.
+    max_tool_calls: Maximum number of tool invocations permitted within the
+      configured scope, regardless of tool source.
+    max_input_tokens: Maximum net uncached input tokens permitted within the
+      configured scope (calculated as prompt tokens minus cached content tokens
+      across model turns).
+    max_output_tokens: Maximum output tokens permitted within the configured
+      scope (candidates + thoughts).
+    max_total_tokens: Maximum total net tokens permitted within the configured
+      scope (calculated as net uncached input tokens + output tokens
+      across model turns).
+    scope: The evaluation scope for this budget configuration. Defaults to
+      BudgetScope.LIFETIME.
   """
 
   max_model_calls: int | None = pydantic.Field(
@@ -889,6 +906,7 @@ class BudgetConfig(pydantic.BaseModel):
   max_total_tokens: int | None = pydantic.Field(
       default=None, ge=1, le=_MAX_INT64
   )
+  scope: BudgetScope = BudgetScope.LIFETIME
 
 
 class StopReason(str, enum.Enum):

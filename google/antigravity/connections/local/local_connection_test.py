@@ -2539,6 +2539,43 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     self.assertEqual(config.budget_config.max_input_tokens, 500)
     self.assertEqual(config.budget_config.max_output_tokens, 200)
     self.assertEqual(config.budget_config.max_total_tokens, 1000)
+    self.assertEqual(
+        config.budget_config.scope,
+        localharness_pb2.BudgetConfig.BUDGET_SCOPE_LIFETIME,
+    )
+
+    budget_cfg_lifetime = types.BudgetConfig(
+        max_total_tokens=1000,
+        scope=types.BudgetScope.LIFETIME,
+    )
+    strategy_lifetime = self._make_strategy(budget_config=budget_cfg_lifetime)
+    config_lifetime = strategy_lifetime._build_harness_config()
+    self.assertTrue(config_lifetime.HasField("budget_config"))
+    self.assertEqual(
+        config_lifetime.budget_config.scope,
+        localharness_pb2.BudgetConfig.BUDGET_SCOPE_LIFETIME,
+    )
+
+    budget_cfg_forward = types.BudgetConfig(
+        max_total_tokens=2000,
+        scope=types.BudgetScope.FORWARD_LOOKING,
+    )
+    strategy_forward = self._make_strategy(budget_config=budget_cfg_forward)
+    config_forward = strategy_forward._build_harness_config()
+    self.assertTrue(config_forward.HasField("budget_config"))
+    self.assertEqual(config_forward.budget_config.max_total_tokens, 2000)
+    self.assertEqual(
+        config_forward.budget_config.scope,
+        localharness_pb2.BudgetConfig.BUDGET_SCOPE_FORWARD_LOOKING,
+    )
+
+    # Test direct helper with normalized inputs
+    self.assertIsNone(
+        local_connection.build_budget_config_proto(None)
+    )
+    self.assertIsNone(
+        local_connection.build_budget_config_proto(types.BudgetConfig())
+    )
 
   def test_retry_config_api_retry_only(self):
     """Verifies translation when only api_retry is configured."""

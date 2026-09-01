@@ -31,6 +31,7 @@ Criteria for correct script performance:
 """
 
 import asyncio
+import tempfile
 
 from google.antigravity import Agent
 from google.antigravity import LocalAgentConfig
@@ -213,6 +214,61 @@ async def demo_max_total_tokens() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 6. Forward-Looking Scope & Session Resumption (BudgetScope.FORWARD_LOOKING)
+# ---------------------------------------------------------------------------
+async def demo_forward_looking_resume() -> None:
+  """Demonstrates granting a fresh token budget on session resumption."""
+  print("\n" + "=" * 60)
+  print("6. Testing FORWARD_LOOKING budget scope on session resume")
+  print("=" * 60)
+
+  with tempfile.TemporaryDirectory(prefix="forward_looking_demo_") as save_dir:
+    # Turn 1: Initial conversation turn with a budget of 1 model call
+    config1 = LocalAgentConfig(
+        save_dir=save_dir,
+        budget_config=types.BudgetConfig(max_model_calls=1),
+    )
+    async with Agent(config1) as agent1:
+      print(
+          "Initial session: Sending question (consumes allowed 1 model call)..."
+      )
+      res1 = await agent1.chat(
+          "What is the capital of France? Reply in 1 word."
+      )
+      print(f"  Agent response: {(await res1.text()).strip()}")
+      print(f"  Turn 1 stop reason: {res1.stop_reason}")
+      conv_id = agent1.conversation_id
+
+    # Turn 2: Resume session with FORWARD_LOOKING budget grant
+    # (max_model_calls=1). Under LIFETIME scope, total model calls would
+    # be 2 >= 1 (exhausted). Under FORWARD_LOOKING scope, delta model calls
+    # is 1 <= 1 (allowed).
+    config2 = LocalAgentConfig(
+        conversation_id=conv_id,
+        save_dir=save_dir,
+        session_continuation_mode=types.SessionContinuationMode.RESUME,
+        budget_config=types.BudgetConfig(
+            max_model_calls=1,
+            scope=types.BudgetScope.FORWARD_LOOKING,
+        ),
+    )
+    async with Agent(config2) as agent2:
+      print(
+          "\nResumed session: Sending follow-up with forward-looking budget..."
+      )
+      res2 = await agent2.chat(
+          "What is the capital of Germany? Reply in 1 word."
+      )
+      print(f"  Agent response: {(await res2.text()).strip()}")
+      print(f"  Resumed session stop reason: {res2.stop_reason}")
+      if res2.stop_reason == types.StopReason.MAX_MODEL_CALLS_EXCEEDED:
+        print(
+            "  [Allowed & Monitored] Forward-looking budget successfully"
+            " measured only post-resumption call!"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main Runner
 # ---------------------------------------------------------------------------
 async def main() -> None:
@@ -222,8 +278,9 @@ async def main() -> None:
   await demo_max_input_tokens()
   await demo_max_output_tokens()
   await demo_max_total_tokens()
+  await demo_forward_looking_resume()
   print("\n" + "=" * 60)
-  print("🎉 All 5 budget enforcement dials verified successfully end-to-end!")
+  print("🎉 All budget enforcement dials verified successfully end-to-end!")
   print("=" * 60)
 
 

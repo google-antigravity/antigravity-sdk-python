@@ -2175,6 +2175,7 @@ class BudgetEnforcementTypesTest(absltest.TestCase):
     self.assertIsNone(cfg.max_input_tokens)
     self.assertIsNone(cfg.max_output_tokens)
     self.assertIsNone(cfg.max_total_tokens)
+    self.assertEqual(cfg.scope, types.BudgetScope.LIFETIME)
 
     cfg_valid = types.BudgetConfig(
         max_model_calls=5,
@@ -2182,12 +2183,14 @@ class BudgetEnforcementTypesTest(absltest.TestCase):
         max_input_tokens=500,
         max_output_tokens=200,
         max_total_tokens=1000,
+        scope=types.BudgetScope.FORWARD_LOOKING,
     )
     self.assertEqual(cfg_valid.max_model_calls, 5)
     self.assertEqual(cfg_valid.max_tool_calls, 10)
     self.assertEqual(cfg_valid.max_input_tokens, 500)
     self.assertEqual(cfg_valid.max_output_tokens, 200)
     self.assertEqual(cfg_valid.max_total_tokens, 1000)
+    self.assertEqual(cfg_valid.scope, types.BudgetScope.FORWARD_LOOKING)
 
     with self.assertRaises(pydantic.ValidationError):
       types.BudgetConfig(max_model_calls=0)
@@ -2209,6 +2212,12 @@ class BudgetEnforcementTypesTest(absltest.TestCase):
       types.BudgetConfig(max_total_tokens=0)
     with self.assertRaises(pydantic.ValidationError):
       types.BudgetConfig(max_total_tokens=2**63)
+    with self.assertRaises(pydantic.ValidationError):
+      types.BudgetConfig.model_validate({"scope": "INVALID_SCOPE"})
+
+  def test_budget_scope_enum(self):
+    self.assertEqual(types.BudgetScope.LIFETIME, "LIFETIME")
+    self.assertEqual(types.BudgetScope.FORWARD_LOOKING, "FORWARD_LOOKING")
 
   def test_stop_reason_enum(self):
     self.assertEqual(types.StopReason.UNSPECIFIED, "UNSPECIFIED")

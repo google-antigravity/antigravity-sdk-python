@@ -153,8 +153,31 @@ def build_budget_config_proto(
   if not config:
     return None
   data = config.model_dump(exclude_none=True)
-  if not data:
+  has_limits = any(
+      k in data
+      for k in (
+          "max_model_calls",
+          "max_tool_calls",
+          "max_input_tokens",
+          "max_output_tokens",
+          "max_total_tokens",
+      )
+  )
+  if not has_limits:
     return None
+  if "scope" in data:
+    scope_val = getattr(data["scope"], "value", data["scope"])
+    if isinstance(scope_val, int):
+      data["scope"] = scope_val
+    elif isinstance(scope_val, str):
+      scope_name = (
+          scope_val
+          if scope_val.startswith("BUDGET_SCOPE_")
+          else f"BUDGET_SCOPE_{scope_val}"
+      )
+      data["scope"] = (
+          localharness_pb2.BudgetConfig.BudgetScope.Value(scope_name)
+      )
   return localharness_pb2.BudgetConfig(**data)
 
 

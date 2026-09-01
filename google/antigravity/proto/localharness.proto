@@ -805,9 +805,15 @@ message PolicyDecisionResponse {
   string deny_reason = 3;
 }
 message BudgetConfig {
+  enum BudgetScope {
+    BUDGET_SCOPE_UNSPECIFIED = 0;
+    BUDGET_SCOPE_LIFETIME = 1;
+    BUDGET_SCOPE_FORWARD_LOOKING = 2;
+  }
   int32 max_model_calls = 1;
   int32 max_tool_calls = 2;
   int64 max_input_tokens = 3;
   int64 max_output_tokens = 4;
   int64 max_total_tokens = 5;
+  .antigravity.localharness.BudgetConfig.BudgetScope scope = 6;
 }
