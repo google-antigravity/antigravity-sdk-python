@@ -575,7 +575,7 @@ class LocalConnection(connection.Connection):
     """Reads OutputEvents from the WebSocket and delegates to processor."""
     try:
       async for raw_msg in self._ws:
-        logging.info("RAW WS MSG: %s", raw_msg)
+        logging.debug("RAW WS MSG: %s", raw_msg)
         event = localharness_pb2.OutputEvent()
         json_format.Parse(raw_msg, event)
         await self._processor.process_event(event)
