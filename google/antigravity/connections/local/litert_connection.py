@@ -57,7 +57,7 @@ class LiteRTConnectionStrategy(
       vision_backend: litert_connection_config.LiteRTBackend | None = None,
       port: int = 0,
       download_if_missing: bool = False,
-      max_context_tokens: int | None = None,
+      compaction_config: types.CompactionConfig | None = None,
       **kwargs: Any,
   ):
     self._model_path = model_path
@@ -68,7 +68,6 @@ class LiteRTConnectionStrategy(
     self._vision_backend = vision_backend
     self._litert_port = port
     self._download_if_missing = download_if_missing
-    self._max_context_tokens = max_context_tokens
 
     # Strategy Context Lifetimes
     self._engine = None
@@ -81,7 +80,11 @@ class LiteRTConnectionStrategy(
     super().__init__(
         base_url="",
         model_name=os.path.basename(model_path),
+        compaction_config=compaction_config,
         **kwargs,
+    )
+    self._max_context_tokens = (
+        compaction_config.max_context_tokens if compaction_config else None
     )
 
   def _configure_litert_logging(self) -> None:

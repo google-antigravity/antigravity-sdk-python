@@ -34,10 +34,13 @@ from google.antigravity import Agent, LiteRTAgentConfig, LiteRTBackend
 - `backend` (`'gpu'` | `'cpu'` | `'npu'`, default `'gpu'`): Hardware backend
   for inference. Use `LiteRTBackend.GPU`, `LiteRTBackend.CPU`, or
   `LiteRTBackend.NPU`.
-- `max_context_tokens` (int | None, default None): KV-cache pre-allocation size.
-  Set to `65536` to accommodate most local hardware setups. The model supports
-  larger windows, but 64k balances capability with memory constraints. When
-  unset, defaults to `4096` from model metadata.
+- `compaction_config` (`CompactionConfig` | None, default None): Configure
+  compaction and context limits, including `max_context_tokens` for KV-cache
+  pre-allocation size. Set to `65536` to accommodate most local hardware setups.
+  The model supports larger windows, but 64k balances capability with memory
+  constraints. When unset, defaults to `4096` from model metadata.
+- `capabilities` (`CapabilitiesConfig` | None, default None): Configure agent
+  capabilities (subagents, tool allowlists, behavior mode).
 - `enable_speculative_decoding` (bool, default False): Enable multi-token
   prediction for faster generation.
 - `cache_dir` (str | None): Directory for compilation caching. Speeds up
@@ -84,7 +87,7 @@ config = LiteRTAgentConfig(
     model_path=os.path.expanduser(
         "~/.litert-lm/models/gemma4-26b/model.litertlm"
     ),
-    max_context_tokens=65536,
+    compaction_config=CompactionConfig(max_context_tokens=65536),
 )
 ```
 

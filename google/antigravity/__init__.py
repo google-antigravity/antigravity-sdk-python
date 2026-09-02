@@ -25,6 +25,7 @@ from google.antigravity.types import AgentBehavior
 from google.antigravity.types import Audio
 from google.antigravity.types import BuiltinTools
 from google.antigravity.types import CapabilitiesConfig
+from google.antigravity.types import CompactionConfig
 from google.antigravity.types import Content
 from google.antigravity.types import CustomSystemInstructions
 from google.antigravity.types import Document
@@ -60,6 +61,7 @@ __all__ = [
     "Audio",
     "BuiltinTools",
     "CapabilitiesConfig",
+    "CompactionConfig",
     "Content",
     "CustomSystemInstructions",
     "Document",

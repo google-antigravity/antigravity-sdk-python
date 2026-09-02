@@ -103,6 +103,30 @@ def to_proto_model_type(
   return localharness_pb2.MODEL_TYPE_UNSPECIFIED
 
 
+def to_proto_compaction_config(
+    compaction_config: types.CompactionConfig | None,
+    capabilities: types.CapabilitiesConfig | None,
+) -> tuple[localharness_pb2.CompactionConfig | None, int]:
+  """Converts SDK CompactionConfig and legacy capabilities to proto and legacy threshold."""
+  effective_compaction = compaction_config
+  if effective_compaction is None and capabilities is not None:
+    if capabilities.compaction_threshold is not None:
+      effective_compaction = types.CompactionConfig(
+          checkpoint_interval_tokens=capabilities.compaction_threshold,
+      )
+
+  if effective_compaction is None:
+    return None, 0
+
+  proto = localharness_pb2.CompactionConfig(
+      checkpoint_interval_tokens=effective_compaction.checkpoint_interval_tokens
+      or 0,
+      max_context_tokens=effective_compaction.max_context_tokens or 0,
+  )
+  legacy_threshold = effective_compaction.checkpoint_interval_tokens or 0
+  return proto, legacy_threshold
+
+
 def build_gemini_options_proto(
     options: types.GeminiModelOptions | None,
 ) -> localharness_pb2.GeminiModelOptions:
@@ -845,6 +869,7 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
       skills_paths: list[str] | None = None,
       system_instructions: str | types.SystemInstructions | None = None,
       capabilities_config: types.CapabilitiesConfig | None = None,
+      compaction_config: types.CompactionConfig | None = None,
       conversation_id: str | None = None,
       session_continuation_mode: types.SessionContinuationMode | None = None,
       save_dir: str | None = None,
@@ -868,6 +893,7 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
       skills_paths: Optional list of paths to search for skills.
       system_instructions: Optional SystemInstructions or string shorthand.
       capabilities_config: Optional CapabilitiesConfig to configure tools.
+      compaction_config: Optional CompactionConfig to configure compaction.
       conversation_id: Optional conversation identifier.
       session_continuation_mode: Optional mode for establishing a connection.
       save_dir: Optional directory to save trajectories.
@@ -909,6 +935,7 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
     self._capabilities_config = (
         capabilities_config or types.CapabilitiesConfig()
     )
+    self._compaction_config = compaction_config
     self._conversation_id = conversation_id
     self._session_continuation_mode = session_continuation_mode
     self._save_dir = save_dir
@@ -1147,14 +1174,11 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
 
     enabled_hooks = self._get_enabled_hooks()
 
-    compaction_config = None
-    if self._capabilities_config.compaction_threshold is not None:
-      compaction_config = localharness_pb2.CompactionConfig(
-          checkpoint_interval_tokens=self._capabilities_config.compaction_threshold
-      )
+    compaction_proto, legacy_threshold = to_proto_compaction_config(
+        self._compaction_config, self._capabilities_config
+    )
 
     custom_agents_protos = self._build_custom_subagents_protos(all_tool_protos)
-
     harness_config = localharness_pb2.HarnessConfig(
         tools=root_tool_protos,
         system_instructions=system_instructions_proto,
@@ -1166,11 +1190,8 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         workspaces=workspace_protos,
         skills_paths=self._skills_paths or [],
         harness_side_tools=harness_side_tools,
-        # 0 tells the harness to use its default.
-        compaction_threshold=(
-            self._capabilities_config.compaction_threshold or 0
-        ),
-        compaction_config=compaction_config,
+        compaction_threshold=legacy_threshold,
+        compaction_config=compaction_proto,
         finish_tool_schema_json=(
             self._capabilities_config.finish_tool_schema_json or ""
         ),

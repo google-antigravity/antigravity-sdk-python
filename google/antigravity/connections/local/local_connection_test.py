@@ -1938,6 +1938,35 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     self.assertEqual(config.compaction_threshold, 0)
     self.assertFalse(config.HasField("compaction_config"))
 
+  def test_compaction_config_explicit(self):
+    """Verifies CompactionConfig maps to HarnessConfig.compaction_config."""
+    strategy = self._make_strategy(
+        compaction_config=types.CompactionConfig(
+            checkpoint_interval_tokens=40000, max_context_tokens=80000
+        )
+    )
+    config = strategy._build_harness_config()
+    self.assertEqual(config.compaction_threshold, 40000)
+    self.assertTrue(config.HasField("compaction_config"))
+    self.assertEqual(config.compaction_config.checkpoint_interval_tokens, 40000)
+    self.assertEqual(config.compaction_config.max_context_tokens, 80000)
+
+  def test_compaction_config_precedence_over_capabilities(self):
+    """Verifies that compaction_config takes precedence over CapabilitiesConfig."""
+    strategy = self._make_strategy(
+        capabilities_config=types.CapabilitiesConfig(
+            compaction_threshold=50000
+        ),
+        compaction_config=types.CompactionConfig(
+            checkpoint_interval_tokens=30000, max_context_tokens=60000
+        ),
+    )
+    config = strategy._build_harness_config()
+    self.assertEqual(config.compaction_threshold, 30000)
+    self.assertTrue(config.HasField("compaction_config"))
+    self.assertEqual(config.compaction_config.checkpoint_interval_tokens, 30000)
+    self.assertEqual(config.compaction_config.max_context_tokens, 60000)
+
   def test_cascade_id_passed_through(self):
     """Verifies that session_config.conversation_id maps to HarnessConfig.cascade_id.
 

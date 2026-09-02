@@ -69,10 +69,6 @@ class LiteRTAgentConfig(BaseLocalAgentConfig):
       default=False,
       description="Automatically download weights. Defaults to False.",
   )
-  max_context_tokens: pydantic.PositiveInt | None = pydantic.Field(
-      default=None,
-      description="Maximum number of tokens for the context window.",
-  )
 
   def __init__(
       self,
@@ -85,7 +81,6 @@ class LiteRTAgentConfig(BaseLocalAgentConfig):
       vision_backend: LiteRTBackend | str | None = None,
       port: int = 0,
       download_if_missing: bool = False,
-      max_context_tokens: int | None = None,
       system_instructions: str | types.SystemInstructions | None = None,
       capabilities: types.CapabilitiesConfig | None = None,
       tools: list[Callable[..., Any]] | None = None,
@@ -102,6 +97,7 @@ class LiteRTAgentConfig(BaseLocalAgentConfig):
           dict[str, Any] | type[pydantic.BaseModel] | str | None
       ) = None,
       skills_paths: list[str] | None = None,
+      compaction_config: types.CompactionConfig | None = None,
       **kwargs: Any,
   ):
     if isinstance(backend, str):
@@ -155,11 +151,11 @@ class LiteRTAgentConfig(BaseLocalAgentConfig):
         vision_backend=self.vision_backend,
         port=self.port,
         download_if_missing=self.download_if_missing,
-        max_context_tokens=self.max_context_tokens,
         tool_runner=tool_runner,
         hook_runner=hook_runner,
         system_instructions=self._get_system_instructions(),
         capabilities_config=self.capabilities,
+        compaction_config=self._get_effective_compaction_config(),
         conversation_id=self.conversation_id,
         save_dir=self._get_or_create_save_dir(),
         workspaces=self.workspaces,

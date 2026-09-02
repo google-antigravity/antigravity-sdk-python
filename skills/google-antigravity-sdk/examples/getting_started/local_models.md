@@ -74,7 +74,7 @@ litert-lm import \
 import asyncio
 import os
 
-from google.antigravity import Agent, LiteRTAgentConfig
+from google.antigravity import Agent, CompactionConfig, LiteRTAgentConfig
 
 
 def compute_secret_hash(input_str: str) -> str:
@@ -91,7 +91,7 @@ async def main():
         model_path=os.path.expanduser(
             "~/.litert-lm/models/gemma4-26b/model.litertlm"
         ),
-        max_context_tokens=65536,
+        compaction_config=CompactionConfig(max_context_tokens=65536),
         tools=[compute_secret_hash],
     ).lightweight()
     async with Agent(config) as agent:
@@ -115,10 +115,7 @@ asyncio.run(main())
 :                         : selects core development tools, prunes system      :
 :                         : prompt overhead, disables subagents, and           :
 :                         : configures context compaction for local models.    :
-| `max_context_tokens`    | Set to `65536` to accommodate most local hardware  |
-:                         : setups. The model supports larger windows, but 64k :
-:                         : balances capability with memory constraints.       :
-:                         : Default is `4096`.                                 :
+| `compaction_config` (`max_context_tokens`) | Set to `CompactionConfig(max_context_tokens=65536)` to accommodate most local hardware setups. The model supports larger windows, but 64k balances capability with memory constraints. Default is `4096`. |
 | GPU acceleration        | Auto-detected. Apple Silicon uses **Metal**;       |
 :                         : Linux/Windows uses **CUDA**.                       :
 | CPU-only fallback       | If no GPU is available, set `backend='cpu'` in the |

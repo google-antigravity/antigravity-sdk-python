@@ -29,6 +29,7 @@ import json
 import logging
 import re
 from typing import Any, AsyncIterator, Callable, Mapping, Sequence, cast
+import warnings
 
 import pydantic
 from typing_extensions import Self
@@ -75,6 +76,27 @@ class AgentConfig(abc.ABC, pydantic.BaseModel):
   # (AntigravityProdActor) connection strategies; ignored by deprecated JPv1.
   retry_config: types.RetryConfig | None = None
   budget_config: types.BudgetConfig | None = None
+  compaction_config: types.CompactionConfig | None = None
+
+  def _get_effective_compaction_config(self) -> types.CompactionConfig | None:
+    """Returns the effective CompactionConfig, falling back to legacy capabilities."""
+    if self.compaction_config is not None:
+      return self.compaction_config
+    if (
+        self.capabilities is not None
+        and self.capabilities.compaction_threshold is not None
+    ):
+      warnings.warn(
+          "CapabilitiesConfig.compaction_threshold is deprecated. Configure"
+          " CompactionConfig(checkpoint_interval_tokens=...) directly on"
+          " AgentConfig instead.",
+          category=DeprecationWarning,
+          stacklevel=2,
+      )
+      return types.CompactionConfig(
+          checkpoint_interval_tokens=self.capabilities.compaction_threshold,
+      )
+    return None
 
   @pydantic.field_validator("debug_config", mode="before")
   @classmethod

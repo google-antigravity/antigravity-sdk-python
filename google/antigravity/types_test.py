@@ -25,6 +25,7 @@ import tempfile
 from typing import Any, cast
 import unittest
 from unittest import mock
+import warnings
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -766,9 +767,19 @@ class CapabilitiesConfigTest(unittest.TestCase):
       )
 
   def test_compaction_threshold_explicit(self):
-    """Verifies that compaction_threshold accepts an explicit integer."""
-    config = types.CapabilitiesConfig(compaction_threshold=50000)
-    self.assertEqual(config.compaction_threshold, 50000)
+    """Verifies that compaction_threshold accepts an integer and emits DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter("always")
+      config = types.CapabilitiesConfig(compaction_threshold=50000)
+      self.assertEqual(config.compaction_threshold, 50000)
+      self.assertTrue(
+          any(
+              issubclass(item.category, DeprecationWarning)
+              and "CapabilitiesConfig.compaction_threshold is deprecated"
+              in str(item.message)
+              for item in w
+          )
+      )
 
   def test_ask_question_warning_when_not_interactive(self):
     """Verifies warning when ASK_QUESTION is enabled and not interactive."""
@@ -935,6 +946,93 @@ class CapabilitiesConfigTest(unittest.TestCase):
             for msg in log_cm.output
         )
     )
+
+
+class CompactionConfigTest(unittest.TestCase):
+  """Validates the CompactionConfig Pydantic model."""
+
+  def test_defaults(self):
+    """Verifies that CompactionConfig fields default to None."""
+    cfg = types.CompactionConfig()
+    self.assertIsNone(cfg.checkpoint_interval_tokens)
+    self.assertIsNone(cfg.max_context_tokens)
+    self.assertIsNone(cfg.compaction_threshold)
+
+  def test_explicit_fields(self):
+    """Verifies construction with explicit integer limits."""
+    cfg = types.CompactionConfig(
+        checkpoint_interval_tokens=50000, max_context_tokens=100000
+    )
+    self.assertEqual(cfg.checkpoint_interval_tokens, 50000)
+    self.assertEqual(cfg.max_context_tokens, 100000)
+    self.assertEqual(cfg.compaction_threshold, 50000)
+
+  def test_legacy_compaction_threshold_migrates(self):
+    """Verifies backward compatibility with compaction_threshold keyword."""
+    cfg = types.CompactionConfig(
+        compaction_threshold=50000, max_context_tokens=100000
+    )
+    self.assertEqual(cfg.checkpoint_interval_tokens, 50000)
+    self.assertEqual(cfg.compaction_threshold, 50000)
+    self.assertEqual(cfg.max_context_tokens, 100000)
+
+  def test_interval_equal_max_context_tokens(self):
+    """Verifies that checkpoint_interval_tokens == max_context_tokens is valid."""
+    cfg = types.CompactionConfig(
+        checkpoint_interval_tokens=100000, max_context_tokens=100000
+    )
+    self.assertEqual(cfg.checkpoint_interval_tokens, 100000)
+    self.assertEqual(cfg.max_context_tokens, 100000)
+
+  def test_interval_exceeds_max_context_tokens_raises(self):
+    """Verifies validation error when checkpoint_interval_tokens > max_context_tokens."""
+    with self.assertRaisesRegex(
+        pydantic.ValidationError,
+        "checkpoint_interval_tokens .* cannot exceed max_context_tokens",
+    ):
+      types.CompactionConfig(
+          checkpoint_interval_tokens=150000, max_context_tokens=100000
+      )
+
+  def test_conflicting_aliased_values_raises(self):
+    """Verifies validation error when conflicting values are passed for aliased fields."""
+    with self.assertRaisesRegex(
+        pydantic.ValidationError,
+        "Conflicting values for aliased fields",
+    ):
+      types.CompactionConfig(
+          checkpoint_interval_tokens=40000, compaction_threshold=80000
+      )
+
+  def test_bidirectional_aliasing_and_model_copy(self):
+    """Verifies bidirectional sync between checkpoint_interval_tokens and compaction_threshold."""
+    cfg1 = types.CompactionConfig(checkpoint_interval_tokens=40000)
+    self.assertEqual(cfg1.checkpoint_interval_tokens, 40000)
+    self.assertEqual(cfg1.compaction_threshold, 40000)
+
+    cfg2 = types.CompactionConfig(compaction_threshold=40000)
+    self.assertEqual(cfg2.checkpoint_interval_tokens, 40000)
+    self.assertEqual(cfg2.compaction_threshold, 40000)
+
+    # Validation from existing model instance preserves aliased fields
+    cfg3 = types.CompactionConfig.model_validate(cfg2)
+    self.assertEqual(cfg3.checkpoint_interval_tokens, 40000)
+    self.assertEqual(cfg3.compaction_threshold, 40000)
+
+  def test_non_positive_values_raise(self):
+    """Verifies that values must be strictly greater than 0."""
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(checkpoint_interval_tokens=0)
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(checkpoint_interval_tokens=-1)
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(compaction_threshold=0)
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(compaction_threshold=-1)
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(max_context_tokens=0)
+    with self.assertRaises(pydantic.ValidationError):
+      types.CompactionConfig(max_context_tokens=-1)
 
 
 class AntigravityConnectionErrorTest(unittest.TestCase):

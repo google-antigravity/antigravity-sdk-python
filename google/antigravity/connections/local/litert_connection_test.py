@@ -350,14 +350,14 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(model.gemma_endpoint.base_url, "http://127.0.0.1:54321")
 
   @mock.patch("os.path.exists")
-  def test_litert_config_max_context_tokens(self, mock_exists):
+  def test_litert_config_compaction_config(self, mock_exists):
     mock_exists.return_value = True
     config = litert_connection_config.LiteRTAgentConfig(
         model_path="/tmp/model.litertlm",
         backend=litert_connection_config.LiteRTBackend.CPU,
-        max_context_tokens=12345,
+        compaction_config=types.CompactionConfig(max_context_tokens=12345),
     )
-    self.assertEqual(config.max_context_tokens, 12345)
+    self.assertEqual(config.compaction_config.max_context_tokens, 12345)
     strategy = config.create_strategy(
         tool_runner=mock.MagicMock(),
         hook_runner=mock.MagicMock(),
@@ -626,7 +626,7 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
     """Verify max_num_tokens (not max_context_tokens) is passed to litert_lm.Engine."""
     config = litert_connection_config.LiteRTAgentConfig(
         model_path="/dummy/path.litertlm",
-        max_context_tokens=4096,
+        compaction_config=types.CompactionConfig(max_context_tokens=4096),
     )
     strategy = config.create_strategy(
         tool_runner=mock.MagicMock(),
@@ -753,7 +753,7 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
     """Verify warmup timeout scaling and engine lock wait on timeout."""
     config = litert_connection_config.LiteRTAgentConfig(
         model_path="/dummy/path.litertlm",
-        max_context_tokens=65536,
+        compaction_config=types.CompactionConfig(max_context_tokens=65536),
     )
     strategy = config.create_strategy(
         tool_runner=mock.MagicMock(),

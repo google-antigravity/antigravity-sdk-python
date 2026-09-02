@@ -126,3 +126,7 @@ relevant information.
     or an OpenAI-compatible server like Ollama), including model download,
     hardware requirements, and context window configuration, read
     `examples/getting_started/local_models.md`.
+-   If the user needs to configure conversation context limits or background
+    trajectory checkpointing (compaction cadence) to handle long-running
+    sessions, read `examples/getting_started/compaction.md`.
+

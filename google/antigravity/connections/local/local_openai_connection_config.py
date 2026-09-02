@@ -61,6 +61,7 @@ class LocalOpenAIAgentConfig(BaseLocalAgentConfig):
           dict[str, Any] | type[pydantic.BaseModel] | str | None
       ) = None,
       skills_paths: list[str] | None = None,
+      compaction_config: types.CompactionConfig | None = None,
       **kwargs: Any,
   ):
     if capabilities is None:
@@ -106,6 +107,7 @@ class LocalOpenAIAgentConfig(BaseLocalAgentConfig):
         hook_runner=hook_runner,
         system_instructions=self._get_system_instructions(),
         capabilities_config=self.capabilities,
+        compaction_config=self._get_effective_compaction_config(),
         conversation_id=self.conversation_id,
         save_dir=self._get_or_create_save_dir(),
         workspaces=self.workspaces,
