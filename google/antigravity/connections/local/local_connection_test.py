@@ -1919,6 +1919,8 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     )
     config = strategy._build_harness_config()
     self.assertEqual(config.compaction_threshold, 50000)
+    self.assertTrue(config.HasField("compaction_config"))
+    self.assertEqual(config.compaction_config.checkpoint_interval_tokens, 50000)
 
   def test_capabilities_config_none_uses_defaults(self):
     """Verifies that capabilities_config=None produces default-enabled tools.
@@ -1934,6 +1936,7 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     self.assertTrue(config.harness_side_tools.run_command.enabled)
     self.assertTrue(config.harness_side_tools.find.enabled)
     self.assertEqual(config.compaction_threshold, 0)
+    self.assertFalse(config.HasField("compaction_config"))
 
   def test_cascade_id_passed_through(self):
     """Verifies that session_config.conversation_id maps to HarnessConfig.cascade_id.

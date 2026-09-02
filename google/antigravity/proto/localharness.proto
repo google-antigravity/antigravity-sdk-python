@@ -106,6 +106,7 @@ message HarnessConfig {
   .antigravity.localharness.PolicyConfig policy_config = 21;
   .antigravity.localharness.AgentBehavior agent_behavior = 22;
   .antigravity.localharness.BudgetConfig budget_config = 23;
+  .antigravity.localharness.CompactionConfig compaction_config = 24;
   extensions 1000 to 1999;
   extensions 2000 to max;
 }
@@ -816,4 +817,7 @@ message BudgetConfig {
   int64 max_output_tokens = 4;
   int64 max_total_tokens = 5;
   .antigravity.localharness.BudgetConfig.BudgetScope scope = 6;
+}
+message CompactionConfig {
+  uint32 checkpoint_interval_tokens = 1;
 }

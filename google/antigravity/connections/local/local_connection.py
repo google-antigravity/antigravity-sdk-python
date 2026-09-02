@@ -1147,7 +1147,14 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
 
     enabled_hooks = self._get_enabled_hooks()
 
+    compaction_config = None
+    if self._capabilities_config.compaction_threshold is not None:
+      compaction_config = localharness_pb2.CompactionConfig(
+          checkpoint_interval_tokens=self._capabilities_config.compaction_threshold
+      )
+
     custom_agents_protos = self._build_custom_subagents_protos(all_tool_protos)
+
     harness_config = localharness_pb2.HarnessConfig(
         tools=root_tool_protos,
         system_instructions=system_instructions_proto,
@@ -1159,10 +1166,11 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         workspaces=workspace_protos,
         skills_paths=self._skills_paths or [],
         harness_side_tools=harness_side_tools,
-        # 0 tells the harness to use its default (50000 tokens).
+        # 0 tells the harness to use its default.
         compaction_threshold=(
             self._capabilities_config.compaction_threshold or 0
         ),
+        compaction_config=compaction_config,
         finish_tool_schema_json=(
             self._capabilities_config.finish_tool_schema_json or ""
         ),
