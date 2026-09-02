@@ -67,7 +67,6 @@ message InputConfig {
   string bind_address = 3 [default = "localhost"];
   .antigravity.localharness.ClientInfo client_info = 4;
   map<string, string> env = 5;
-  bool use_interactions_api = 6;
 }
 message InitializeConversationEvent {
   .antigravity.localharness.HarnessConfig config = 1;
