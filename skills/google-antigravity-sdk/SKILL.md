@@ -57,9 +57,9 @@ relevant information.
 -   If the user needs to extend an agent's capabilities by integrating Model
     Context Protocol (MCP) servers, or configure tool permissions for the agent,
     read `references/mcp_integration.md`.
--   If the user needs to define safety policies, resolve execution order, or
-    restrict agent actions using predicates, read
-    `references/safety_policies.md`.
+-   If the user needs to define safety policies, resolve execution order,
+    restrict agent actions using predicates, or run terminal commands inside an
+    OS-level sandbox, read `references/safety_policies.md`.
 -   If the user needs to debug failed agents, stream logs, or implement error
     recovery using hooks to make agents robust, read
     `references/error_handling.md`.

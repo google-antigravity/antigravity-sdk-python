@@ -280,6 +280,26 @@ config = LocalAgentConfig(
 )
 ```
 
+### `run_command` Configuration (`RunCommandConfig`)
+
+Configure the built-in `run_command` tool via `RunCommandConfig`, including
+running commands inside an OS-level sandbox with `enable_sandbox`:
+
+```python
+from google.antigravity import Agent, LocalAgentConfig, types
+from google.antigravity.hooks import policy
+
+config = LocalAgentConfig(
+    capabilities=types.CapabilitiesConfig(
+        run_command_config=types.RunCommandConfig(enable_sandbox=True),
+    ),
+    policies=[policy.allow_all()],
+)
+```
+
+For details and caveats, see
+[safety_policies.md](safety_policies.md#defense-in-depth-os-level-command-sandboxing).
+
 ### Session Budget Controls & Stop Reasons
 
 You can configure session operational limits (`max_model_calls`, `max_tool_calls`) and proactive token budget controls (`max_input_tokens`, `max_output_tokens`, `max_total_tokens`) using `BudgetConfig`:
@@ -301,6 +321,7 @@ For a full guide and multi-turn stop reason handling examples, see [budget_limit
 ### Context Compaction & Token Limits (`compaction_config`)
 
 Antigravity manages conversation context using a two-stage sliding-window pipeline:
+
 1. **Background Checkpointing**: A background model pre-computes cumulative trajectory summaries (checkpoints) at regular token intervals (`checkpoint_interval_tokens`). Checkpoint generation runs asynchronously and silently in parallel without modifying or truncating the active prompt.
 2. **Prompt Eviction (Compaction)**: When cumulative prompt tokens reach the context ceiling (`max_context_tokens`), the prompt snaps back to the latest completed checkpoint. Earlier checkpoints and older turns preceding the latest checkpoint are evicted from the prompt, while recent turns between the latest checkpoint and the current turn are preserved verbatim with full fidelity.
 

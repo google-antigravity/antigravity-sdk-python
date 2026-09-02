@@ -214,3 +214,31 @@ config = LocalAgentConfig(
     policies=[policy.allow_all()],
 )
 ```
+
+## Defense in Depth: OS-Level Command Sandboxing
+
+Policies decide **whether** `run_command` runs; the OS sandbox confines **what a
+command can do once it runs**. The two are complementary — a permissive policy
+(e.g. `allow_all()`) can be paired with the sandbox so shell commands still
+cannot touch anything outside the agent's workspace.
+
+Enable it with `enable_sandbox` on `RunCommandConfig`:
+
+```python
+from google.antigravity import Agent, LocalAgentConfig, types
+from google.antigravity.hooks import policy
+
+config = LocalAgentConfig(
+    capabilities=types.CapabilitiesConfig(
+        run_command_config=types.RunCommandConfig(enable_sandbox=True),
+    ),
+    # run_command must be allowed for the sandbox to apply.
+    policies=[policy.allow_all()],
+)
+```
+
+> [!IMPORTANT] `enable_sandbox` has no effect on platforms/environments where
+> the sandbox is unavailable, and the SDK does not warn or raise in that case.
+> Do not rely on it as your only safety boundary — combine it with policies
+> (`deny` / `ask_user`) and verify the sandbox is available in your target
+> environment.

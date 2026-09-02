@@ -44,3 +44,9 @@ descriptions.
 
 > [!NOTE] Some production backends may require additional environment or
 > filesystem configuration to support these tools.
+
+> [!NOTE] `run_command` can be hardened by executing shell commands inside an
+> OS-level sandbox. Set `enable_sandbox=True` on `RunCommandConfig` (nested
+> under `CapabilitiesConfig.run_command_config`). See
+> [Safety Policies](safety_policies.md#defense-in-depth-os-level-command-sandboxing)
+> for details and caveats.
