@@ -820,4 +820,5 @@ message BudgetConfig {
 }
 message CompactionConfig {
   uint32 checkpoint_interval_tokens = 1;
+  uint32 max_context_tokens = 2;
 }
