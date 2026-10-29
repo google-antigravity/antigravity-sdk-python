@@ -15,12 +15,14 @@
 """Unit tests verifying bidirectional conversion between Python dicts and genai Content Struct protos."""
 
 import dataclasses
+import enum
 from typing import Any
 
 from absl.testing import absltest
 import pydantic
 
 from google.antigravity.proto import content_pb2
+from google.antigravity import types
 from google.antigravity.connections import struct_converter
 
 
@@ -135,34 +137,6 @@ class StructConverterTest(absltest.TestCase):
     v = content_pb2.Value(string_value="direct")
     val_v = struct_converter.value_to_proto(v)
     self.assertIs(val_v, v)
-
-  def test_has_proto_extensions_video_content(self):
-    video = content_pb2.VideoContent(
-        mime_type=content_pb2.VideoContent.TYPE_MP4,
-        uri="https://example.com/video/123",
-    )
-    result = {"output": "processed", "video": video}
-    self.assertTrue(struct_converter.has_proto_extensions(result))
-
-  def test_has_proto_extensions_pydantic_model(self):
-    video = content_pb2.VideoContent(
-        mime_type=content_pb2.VideoContent.TYPE_MP4,
-        uri="https://example.com/video/123",
-    )
-    model = SamplePydanticModel(output="processed", video=video)
-    self.assertTrue(struct_converter.has_proto_extensions(model))
-
-  def test_has_proto_extensions_dataclass(self):
-    video = content_pb2.VideoContent(
-        mime_type=content_pb2.VideoContent.TYPE_MP4,
-        uri="https://example.com/video/123",
-    )
-    dc = SampleDataclass(output="processed", video=video)
-    self.assertTrue(struct_converter.has_proto_extensions(dc))
-
-  def test_has_proto_extensions_plain_dict(self):
-    result = {"output": "processed", "count": 42}
-    self.assertFalse(struct_converter.has_proto_extensions(result))
 
   def test_dict_to_struct_video_content(self):
     video = content_pb2.VideoContent(
@@ -285,8 +259,6 @@ class StructConverterTest(absltest.TestCase):
             "metadata": {"step": 1},
         },
     }
-
-    self.assertTrue(struct_converter.has_proto_extensions(data))
 
     struct_pb = struct_converter.dict_to_struct(data)
     fields_map = {f.name: f.value for f in struct_pb.fields}
@@ -519,6 +491,204 @@ class StructConverterTest(absltest.TestCase):
         struct_converter.unwrap_wire_value("raw_string"), "raw_string"
     )
     self.assertEqual(struct_converter.unwrap_wire_value(123), 123)
+
+  def test_sdk_media_types_conversion(self):
+    cases = [
+        (types.Image(data=b"\x89PNG", mime_type="image/png"), "image"),
+        (types.Audio(data=b"RIFF", mime_type="audio/wav"), "audio"),
+        (types.Video(data=b"ftyp", mime_type="video/mp4"), "video"),
+        (types.Document(data=b"%PDF", mime_type="application/pdf"), "document"),
+    ]
+    for media_obj, field_name in cases:
+      with self.subTest(field_name):
+        self.assertFalse(struct_converter.is_structured(media_obj))
+        val_pb = struct_converter.value_to_proto(media_obj)
+        self.assertEqual(val_pb.content_value.WhichOneof("type"), field_name)
+        inner = getattr(val_pb.content_value, field_name)
+        self.assertEqual(inner.data, media_obj.data)
+        self.assertEqual(inner.mime_type_string, media_obj.mime_type)
+
+    top_struct = struct_converter.to_struct(cases[0][0])
+    self.assertEqual(top_struct.fields[0].name, "result")
+    self.assertEqual(
+        top_struct.fields[0].value.content_value.image.data, b"\x89PNG"
+    )
+
+    nested = SamplePydanticModel(output="ok", video=cases[2][0])
+    nested_fields = {
+        f.name: f.value for f in struct_converter.to_struct(nested).fields
+    }
+    self.assertEqual(nested_fields["output"].string_value, "ok")
+    self.assertEqual(nested_fields["video"].content_value.video.data, b"ftyp")
+    self.assertEqual(
+        nested_fields["video"].content_value.video.mime_type_string, "video/mp4"
+    )
+
+  def test_pydantic_base_model_preserves_exclude_computed_extra_and_enums(self):
+    class ReportStatus(enum.Enum):
+      OK = "ok"
+
+    class PlainRedactedReport(pydantic.BaseModel):
+      model_config = pydantic.ConfigDict(extra="allow")
+      summary: str
+      status: ReportStatus = ReportStatus.OK
+      api_token: str = pydantic.Field(default="secret-token", exclude=True)
+
+      @pydantic.computed_field
+      @property
+      def label(self) -> str:
+        return f"{self.summary}:{self.status.value}"
+
+    plain_report = PlainRedactedReport(
+        summary="done", extra_note="kept"  # type: ignore[call-arg]
+    )
+    plain_fields = {
+        f.name: f.value for f in struct_converter.to_struct(plain_report).fields
+    }
+    self.assertNotIn("api_token", plain_fields)
+    self.assertEqual(plain_fields["summary"].string_value, "done")
+    self.assertEqual(plain_fields["status"].string_value, "ok")
+    self.assertEqual(plain_fields["label"].string_value, "done:ok")
+    self.assertEqual(plain_fields["extra_note"].string_value, "kept")
+    self.assertEqual(
+        struct_converter.to_json_fallback(plain_report),
+        {
+            "summary": "done",
+            "status": "ok",
+            "label": "done:ok",
+            "extra_note": "kept",
+        },
+    )
+
+    class MediaRedactedReport(pydantic.BaseModel):
+      model_config = pydantic.ConfigDict(
+          arbitrary_types_allowed=True, extra="allow"
+      )
+      summary: str
+      status: ReportStatus = ReportStatus.OK
+      image: types.Image
+      api_token: str = pydantic.Field(default="secret-token", exclude=True)
+
+      @pydantic.computed_field
+      @property
+      def label(self) -> str:
+        return f"{self.summary}:{self.status.value}"
+
+    media_report = MediaRedactedReport(
+        summary="done",
+        image=types.Image(data=b"\x89PNG", mime_type="image/png"),
+        extra_note="kept",  # type: ignore[call-arg]
+    )
+    media_fields = {
+        f.name: f.value for f in struct_converter.to_struct(media_report).fields
+    }
+    self.assertNotIn("api_token", media_fields)
+    self.assertEqual(media_fields["summary"].string_value, "done")
+    self.assertEqual(media_fields["status"].string_value, "ok")
+    self.assertEqual(media_fields["label"].string_value, "done:ok")
+    self.assertEqual(media_fields["extra_note"].string_value, "kept")
+    self.assertEqual(
+        media_fields["image"].content_value.image.data,
+        b"\x89PNG",
+    )
+    self.assertEqual(
+        struct_converter.to_json_fallback(media_report),
+        {
+            "summary": "done",
+            "status": "ok",
+            "image": {"mime_type": "image/png"},
+            "label": "done:ok",
+            "extra_note": "kept",
+        },
+    )
+
+  def test_pydantic_root_model_dict_and_primitive(self):
+    class DictRoot(pydantic.RootModel[dict[str, Any]]):
+      pass
+
+    class IntRoot(pydantic.RootModel[int]):
+      pass
+
+    dict_root = DictRoot(
+        {"count": 3, "img": types.Image(data=b"abc", mime_type="image/png")}
+    )
+    self.assertTrue(struct_converter.is_structured(dict_root))
+    dict_fields = {
+        f.name: f.value for f in struct_converter.to_struct(dict_root).fields
+    }
+    self.assertEqual(dict_fields["count"].number_value, 3.0)
+    self.assertEqual(dict_fields["img"].content_value.image.data, b"abc")
+    self.assertEqual(
+        struct_converter.to_json_fallback(dict_root),
+        {"count": 3, "img": {"mime_type": "image/png"}},
+    )
+
+    plain_dict_root = DictRoot({"count": 5})
+    self.assertEqual(
+        struct_converter.to_json_fallback(plain_dict_root), {"count": 5}
+    )
+
+    int_root = IntRoot(7)
+    self.assertFalse(struct_converter.is_structured(int_root))
+    int_struct = struct_converter.to_struct(int_root)
+    self.assertEqual(int_struct.fields[0].name, "result")
+    self.assertEqual(int_struct.fields[0].value.number_value, 7.0)
+    self.assertEqual(struct_converter.to_json_fallback(int_root), 7)
+
+  def test_to_json_fallback_inline_media_omits_raw_bytes(self):
+    sdk_img = types.Image(data=b"\x89PNG\r\n\x1a\n", mime_type="image/png")
+    self.assertEqual(
+        struct_converter.to_json_fallback({"screenshot": sdk_img}),
+        {"screenshot": {"mime_type": "image/png"}},
+    )
+
+    inline_cases = [
+        (
+            "image",
+            content_pb2.ImageContent(
+                data=b"\x89PNG\r\n\x1a\n", mime_type_string="image/png"
+            ),
+            "image/png",
+        ),
+        (
+            "audio",
+            content_pb2.AudioContent(
+                data=b"RIFF", mime_type_string="audio/wav"
+            ),
+            "audio/wav",
+        ),
+        (
+            "video",
+            content_pb2.VideoContent(
+                data=b"ftyp", mime_type_string="video/mp4"
+            ),
+            "video/mp4",
+        ),
+        (
+            "document",
+            content_pb2.DocumentContent(
+                data=b"%PDF", mime_type_string="application/pdf"
+            ),
+            "application/pdf",
+        ),
+    ]
+    for field_name, inline_proto, expected_mime in inline_cases:
+      with self.subTest(field_name):
+        self.assertEqual(
+            struct_converter.to_json_fallback(inline_proto),
+            {"mime_type": expected_mime},
+        )
+        wrapped = content_pb2.Content(**{field_name: inline_proto})
+        self.assertEqual(
+            struct_converter.to_json_fallback(
+                content_pb2.Value(content_value=wrapped)
+            ),
+            {"mime_type": expected_mime},
+        )
+
+    self.assertEqual(
+        struct_converter.to_json_fallback(content_pb2.Content()), ""
+    )
 
   def test_format_diff_blocks(self):
     diff_blocks = [

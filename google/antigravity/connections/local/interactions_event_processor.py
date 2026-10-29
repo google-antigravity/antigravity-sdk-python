@@ -669,7 +669,7 @@ class InteractionsEventProcessor(event_processor.BaseLocalEventProcessor):
         sanitized_result = result.model_copy(
             update={"result": sanitized_output}
         )
-        if struct_converter.has_proto_extensions(sanitized_result.result):
+        if event_processor.has_proto_extensions(sanitized_result.result):
           res_data = (
               sanitized_result.result
               if struct_converter.is_structured(sanitized_result.result)

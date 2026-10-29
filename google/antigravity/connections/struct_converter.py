@@ -16,11 +16,18 @@
 
 from collections import abc
 import dataclasses
+import enum
 from typing import Any, cast
 
 from google.protobuf import message
+import pydantic
 
 from google.antigravity.proto import content_pb2
+from google.antigravity import types
+
+# SDK media primitives inherit pydantic.BaseModel, so _as_mapping treats them
+# as leaf values serialized into Content protos rather than generic Structs.
+_SDK_MEDIA_TYPES = (types.Image, types.Audio, types.Video, types.Document)
 
 # Automatically discover all Content and media component Message classes from
 # content.proto:
@@ -58,7 +65,7 @@ _MEDIA_DESCRIPTOR_MAP = {
 }
 
 
-def _is_content_proto(obj: Any) -> bool:
+def is_content_proto(obj: Any) -> bool:
   """Returns True if obj is an interactions Content proto or media component."""
   if isinstance(obj, _CONTENT_PROTO_TYPES):
     return True
@@ -70,12 +77,76 @@ def _is_content_proto(obj: Any) -> bool:
   return False
 
 
+def _has_raw_leaf_object(obj: Any) -> bool:
+  """Returns True if `obj` contains SDK media or Content proto instances."""
+  if is_content_proto(obj) or isinstance(obj, _SDK_MEDIA_TYPES):
+    return True
+  if isinstance(obj, pydantic.RootModel):
+    return _has_raw_leaf_object(obj.root)
+  if isinstance(obj, pydantic.BaseModel):
+    model_cls = type(obj)
+    for name, info in model_cls.model_fields.items():
+      if not info.exclude and _has_raw_leaf_object(getattr(obj, name)):
+        return True
+    for name, info in model_cls.model_computed_fields.items():
+      if not getattr(info, "exclude", False) and _has_raw_leaf_object(
+          getattr(obj, name)
+      ):
+        return True
+    extra = getattr(obj, "__pydantic_extra__", None) or {}
+    return any(_has_raw_leaf_object(v) for v in extra.values())
+  if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+    return any(
+        _has_raw_leaf_object(getattr(obj, f.name))
+        for f in dataclasses.fields(obj)
+    )
+  if isinstance(obj, abc.Mapping):
+    return any(_has_raw_leaf_object(v) for v in obj.values())
+  if isinstance(obj, abc.Sequence) and not isinstance(obj, (str, bytes)):
+    return any(_has_raw_leaf_object(v) for v in obj)
+  return False
+
+
 def _as_mapping(obj: Any) -> abc.Mapping[str, Any] | None:
-  """Converts mappings, Pydantic models, and dataclass instances to a Mapping, or None if not structured."""
-  if _is_content_proto(obj) or isinstance(obj, type):
+  """Converts structured objects to a Mapping, or None for primitives and media."""
+  if (
+      is_content_proto(obj)
+      or isinstance(obj, _SDK_MEDIA_TYPES)
+      or isinstance(obj, type)
+  ):
     return None
   if isinstance(obj, abc.Mapping):
     return obj
+  if isinstance(obj, pydantic.RootModel):
+    if _has_raw_leaf_object(obj.root):
+      return _as_mapping(obj.root)
+    try:
+      d = obj.model_dump()
+      return d if isinstance(d, abc.Mapping) else None
+    except (TypeError, ValueError, AttributeError):
+      return None
+  # Preserve nested SDK media and Content proto leaves on BaseModel instances
+  # without bypassing model_dump() serialization rules for plain models.
+  if isinstance(obj, pydantic.BaseModel):
+    try:
+      if _has_raw_leaf_object(obj):
+        model_cls = type(obj)
+        out: dict[str, Any] = {
+            k: getattr(obj, k)
+            for k, info in model_cls.model_fields.items()
+            if not info.exclude
+        }
+        for k, info in model_cls.model_computed_fields.items():
+          if not getattr(info, "exclude", False):
+            out[k] = getattr(obj, k)
+        if obj.__pydantic_extra__:
+          out.update(obj.__pydantic_extra__)
+        return out
+      d = obj.model_dump()
+      if isinstance(d, abc.Mapping):
+        return d
+    except (TypeError, ValueError, AttributeError):
+      pass
   if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
     try:
       d = obj.model_dump()
@@ -99,28 +170,8 @@ def _as_mapping(obj: Any) -> abc.Mapping[str, Any] | None:
 
 
 def is_structured(obj: Any) -> bool:
-  """Returns True if obj is a mapping, Pydantic model, or dataclass instance."""
+  """Returns True if obj is a mapping or non-media Pydantic/dataclass instance."""
   return _as_mapping(obj) is not None
-
-
-def has_proto_extensions(obj: Any) -> bool:
-  """Checks whether an object or its descendants contain genai Content components.
-
-  Args:
-    obj: The Python object or data structure to inspect.
-
-  Returns:
-    True if the object or any nested value is a Content or media Content proto,
-    otherwise False.
-  """
-  if _is_content_proto(obj):
-    return True
-  m = _as_mapping(obj)
-  if m is not None:
-    return any(has_proto_extensions(v) for v in m.values())
-  if isinstance(obj, abc.Sequence) and not isinstance(obj, (str, bytes)):
-    return any(has_proto_extensions(v) for v in obj)
-  return False
 
 
 def to_struct(obj: Any) -> content_pb2.Struct:
@@ -168,15 +219,48 @@ def _wrap_media_content(field_name: str, val: Any) -> content_pb2.Content:
   return content_cls(**{field_name: val})
 
 
+def _sdk_media_to_content_proto(obj: Any) -> content_pb2.Content | None:
+  """Converts an SDK media object into a content_pb2.Content message."""
+  if isinstance(obj, types.Image):
+    return content_pb2.Content(
+        image=content_pb2.ImageContent(
+            data=obj.data, mime_type_string=obj.mime_type
+        )
+    )
+  if isinstance(obj, types.Audio):
+    return content_pb2.Content(
+        audio=content_pb2.AudioContent(
+            data=obj.data, mime_type_string=obj.mime_type
+        )
+    )
+  if isinstance(obj, types.Video):
+    return content_pb2.Content(
+        video=content_pb2.VideoContent(
+            data=obj.data, mime_type_string=obj.mime_type
+        )
+    )
+  if isinstance(obj, types.Document):
+    return content_pb2.Content(
+        document=content_pb2.DocumentContent(
+            data=obj.data, mime_type_string=obj.mime_type
+        )
+    )
+  return None
+
+
 def value_to_proto(val: Any) -> content_pb2.Value:
-  """Converts a Python value into a content_pb2.Value protobuf message.
+  """Converts a Python value or SDK media object into a content_pb2.Value proto.
 
   Args:
-    val: The Python value or data structure to serialize.
+    val: The Python value, SDK media object, or data structure to serialize.
 
   Returns:
     A populated content_pb2.Value protobuf message.
   """
+  if isinstance(val, enum.Enum):
+    val = val.value
+  if isinstance(val, pydantic.RootModel):
+    val = val.root
   if val is None:
     return content_pb2.Value(null_value="NULL_VALUE")
   if isinstance(val, bool):
@@ -191,6 +275,10 @@ def value_to_proto(val: Any) -> content_pb2.Value:
             values=[value_to_proto(x) for x in val]
         )
     )
+
+  sdk_content = _sdk_media_to_content_proto(val)
+  if sdk_content is not None:
+    return content_pb2.Value(content_value=sdk_content)
 
   m = _as_mapping(val)
   if m is not None:
@@ -277,10 +365,18 @@ def to_json_fallback(obj: Any) -> Any:
     obj: The Python object or data structure to convert.
 
   Returns:
-    A JSON-serializable representation, replacing Content instances with
-    reference pointers if display_name or uri is present.
+    A JSON-serializable representation, replacing URI or named Content instances
+    with `$ref` pointers and inline binary media with `{"mime_type": ...}`
+    summaries that omit raw bytes.
   """
-  if _is_content_proto(obj):
+  if isinstance(obj, enum.Enum):
+    obj = obj.value
+  if isinstance(obj, pydantic.RootModel):
+    obj = obj.root
+  if isinstance(obj, _SDK_MEDIA_TYPES):
+    return {"mime_type": obj.mime_type}
+
+  if is_content_proto(obj):
     dn = _get_display_name(obj)
     if dn:
       return {"$ref": dn}
@@ -289,8 +385,15 @@ def to_json_fallback(obj: Any) -> Any:
       return {"$ref": uri}
     if isinstance(obj, content_pb2.TextContent):
       return obj.text
-    if isinstance(obj, content_pb2.Content) and obj.HasField("text"):
-      return obj.text.text
+    if isinstance(obj, content_pb2.Content):
+      which = obj.WhichOneof("type")
+      if which == "text":
+        return obj.text.text
+      if which in ("image", "audio", "video", "document"):
+        return {"mime_type": getattr(obj, which).mime_type_string}
+    for media_type, field_name in _MEDIA_TYPE_MAP.items():
+      if field_name != "text" and isinstance(obj, media_type):
+        return {"mime_type": getattr(obj, "mime_type_string", "")}
     return str(obj)
 
   if isinstance(obj, content_pb2.Struct) or (

@@ -15,6 +15,7 @@
 """Tests for event_processor that translates wire events to SDK events."""
 
 import asyncio
+import dataclasses
 import json
 from typing import Any
 import unittest
@@ -174,6 +175,93 @@ class EventProcessorHelperTest(absltest.TestCase):
             localharness_pb2.TrajectoryStateUpdate.STOP_REASON_UNSPECIFIED
         ),
         types.StopReason.UNSPECIFIED,
+    )
+
+  def test_has_proto_extensions_content_protos_and_containers(self):
+    class ModelWithContent(pydantic.BaseModel):
+      model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+      output: str
+      video: Any
+      excluded: Any = pydantic.Field(default=None, exclude=True)
+
+    @dataclasses.dataclass
+    class DataclassWithContent:
+      output: str
+      video: Any
+
+    video = content_pb2.VideoContent(
+        mime_type=content_pb2.VideoContent.TYPE_MP4,
+        uri="https://example.com/video/123",
+    )
+    self.assertTrue(
+        event_processor.has_proto_extensions(
+            {"output": "processed", "video": [video]}
+        )
+    )
+    self.assertTrue(
+        event_processor.has_proto_extensions(
+            ModelWithContent(output="processed", video=video)
+        )
+    )
+    self.assertFalse(
+        event_processor.has_proto_extensions(
+            ModelWithContent(output="processed", video=None, excluded=video)
+        )
+    )
+    self.assertTrue(
+        event_processor.has_proto_extensions(
+            DataclassWithContent(output="processed", video=video)
+        )
+    )
+    self.assertFalse(
+        event_processor.has_proto_extensions(
+            {"output": "processed", "count": 42}
+        )
+    )
+    # SDK media primitives remain False so pure SDK media routes via
+    # ToolResponse.supplemental_media.
+    sdk_img = types.Image(data=b"\x89PNG", mime_type="image/png")
+    self.assertFalse(event_processor.has_proto_extensions(sdk_img))
+    self.assertFalse(
+        event_processor.has_proto_extensions(
+            ModelWithContent(output="processed", video=sdk_img)
+        )
+    )
+
+
+class ToolResponseRoutingTest(unittest.IsolatedAsyncioTestCase):
+  """Tests for LocalHarnessEventProcessor._send_tool_results routing."""
+
+  async def test_mixed_content_proto_and_sdk_media_uses_structured_response(
+      self,
+  ):
+    send_mock = mock.AsyncMock()
+    processor = event_processor.LocalHarnessEventProcessor(
+        send_input_event_fn=send_mock
+    )
+    video = content_pb2.VideoContent(uri="https://example.com/v.mp4")
+    image = types.Image(data=b"\x89PNG", mime_type="image/png")
+    await processor._send_tool_results([  # pylint: disable=protected-access
+        types.ToolResult(
+            id="call-1",
+            name="mixed_tool",
+            result={"video": video, "image": image},
+        )
+    ])
+    send_mock.assert_awaited_once()
+    resp = send_mock.call_args[0][0].tool_response
+    self.assertTrue(resp.HasField("response"))
+    fields = {f.name: f.value for f in resp.response.fields}
+    self.assertEqual(
+        fields["video"].content_value.video.uri, "https://example.com/v.mp4"
+    )
+    self.assertEqual(fields["image"].content_value.image.data, b"\x89PNG")
+    self.assertEqual(
+        json.loads(resp.response_json),
+        {
+            "video": {"$ref": "https://example.com/v.mp4"},
+            "image": {"mime_type": "image/png"},
+        },
     )
 
 

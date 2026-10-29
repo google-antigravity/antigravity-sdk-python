@@ -15,6 +15,7 @@
 """Event processor for localharness events."""
 
 import asyncio
+from collections import abc
 import dataclasses
 import json
 import logging
@@ -105,6 +106,50 @@ def _extract_media_from_result(value: Any) -> tuple[Any, list[Any]]:
         cleaned_dict[key] = cleaned_item
     return (cleaned_dict or None), dict_media
   return value, []
+
+
+def has_proto_extensions(obj: Any) -> bool:
+  """Checks whether `obj` or its descendants contain genai Content protos.
+
+  SDK media primitives (`_MEDIA_TYPES`) are intentionally excluded here so
+  `LocalConnection` continues routing pure SDK media return values through
+  `ToolResponse.supplemental_media`.
+
+  Args:
+    obj: The Python object or data structure to inspect.
+
+  Returns:
+    True if `obj` or any nested value is a `genai.Content` or media `Content`
+    proto message, otherwise False.
+  """
+  if struct_converter.is_content_proto(obj):
+    return True
+  if isinstance(obj, _MEDIA_TYPES) or isinstance(obj, type):
+    return False
+  if isinstance(obj, pydantic.RootModel):
+    return has_proto_extensions(obj.root)
+  if isinstance(obj, pydantic.BaseModel):
+    model_cls = type(obj)
+    for name, info in model_cls.model_fields.items():
+      if not info.exclude and has_proto_extensions(getattr(obj, name)):
+        return True
+    for name, info in model_cls.model_computed_fields.items():
+      if not getattr(info, "exclude", False) and has_proto_extensions(
+          getattr(obj, name)
+      ):
+        return True
+    extra = getattr(obj, "__pydantic_extra__", None) or {}
+    return any(has_proto_extensions(v) for v in extra.values())
+  if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+    return any(
+        has_proto_extensions(getattr(obj, f.name))
+        for f in dataclasses.fields(obj)
+    )
+  if isinstance(obj, abc.Mapping):
+    return any(has_proto_extensions(v) for v in obj.values())
+  if isinstance(obj, abc.Sequence) and not isinstance(obj, (str, bytes)):
+    return any(has_proto_extensions(v) for v in obj)
+  return False
 
 
 class _StepTracker:
@@ -1144,7 +1189,7 @@ class LocalHarnessEventProcessor(BaseLocalEventProcessor):
             error_message=result.error,
         )
       else:
-        if struct_converter.has_proto_extensions(result.result):
+        if has_proto_extensions(result.result):
           res_data = (
               result.result
               if struct_converter.is_structured(result.result)
