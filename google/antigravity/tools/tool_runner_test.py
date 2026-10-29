@@ -16,6 +16,7 @@
 
 import asyncio
 import dataclasses
+import functools
 import threading
 import typing
 from typing import Optional, Union
@@ -270,6 +271,18 @@ class ToolRunnerTest(absltest.TestCase):
     runner = tool_runner.ToolRunner()
     runner.register(tool)
     self.assertEqual(runner.tool_names, ["SyncCallable"])
+
+  def test_register_functools_partial_uses_wrapped_func_name(self):
+    """Verifies registering functools.partial uses func.__name__ instead of 'partial'."""
+
+    def add(prefix: str, value: str) -> str:
+      return f"{prefix}:{value}"
+
+    partial_tool = functools.partial(add, "tag")
+    runner = tool_runner.ToolRunner([partial_tool])
+    self.assertEqual(runner.tool_names, ["add"])
+    result = asyncio.run(runner.execute("add", value="ok"))
+    self.assertEqual(result, "tag:ok")
 
   def test_tool_with_schema_no_name(self):
     """Verifies ToolWithSchema handles callable object without __name__."""

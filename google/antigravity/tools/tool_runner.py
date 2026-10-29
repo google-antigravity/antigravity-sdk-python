@@ -31,6 +31,7 @@ injectable parameters so the model never sees them.
 import ast
 import asyncio
 from collections.abc import Sequence
+import dataclasses
 import functools
 import inspect
 import types as std_types
@@ -48,8 +49,52 @@ _TOOL_CONTEXT_LOCALNS: dict[str, Any] = {
 }
 
 
+def get_tool_name(tool: Any) -> str:
+  """Returns the default registration name for a Python tool callable."""
+  name = getattr(tool, "__name__", None)
+  if name:
+    return name
+  if isinstance(tool, functools.partial):
+    return get_tool_name(tool.func)
+  return type(tool).__name__
+
+
+def get_tool_doc(tool: Any) -> str:
+  """Returns the cleaned docstring for a Python tool callable."""
+  inst_doc = getattr(tool, "__dict__", {}).get("__doc__")
+  if (
+      isinstance(inst_doc, str)
+      and inst_doc
+      and not isinstance(tool, functools.partial)
+  ):
+    if inspect.isroutine(tool):
+      return inspect.getdoc(tool) or ""
+    return inspect.cleandoc(inst_doc)
+  while isinstance(tool, functools.partial):
+    tool = tool.func
+  if inspect.isroutine(tool):
+    return inspect.getdoc(tool) or ""
+  for cls in type(tool).__mro__:
+    if cls is object:
+      continue
+    call_attr = cls.__dict__.get("__call__")
+    call_doc = getattr(call_attr, "__doc__", None)
+    if isinstance(call_doc, str) and call_doc:
+      return inspect.cleandoc(call_doc)
+  cls_doc = inspect.getdoc(type(tool))
+  if (
+      cls_doc
+      and dataclasses.is_dataclass(tool)
+      and cls_doc.startswith(f"{type(tool).__name__}(")
+  ):
+    return ""
+  return cls_doc or ""
+
+
 def _get_type_hints(target: Any) -> dict[str, Any]:
-  """Resolves type hints for functions, methods, and callable objects."""
+  """Resolves type hints for functions, methods, partials, and callable objects."""
+  while isinstance(target, functools.partial):
+    target = target.func
   if not inspect.isroutine(target) and hasattr(target, "__call__"):
     target = target.__call__
   try:
@@ -226,18 +271,27 @@ def _make_public_callable(
   new_params = [p for n, p in sig.parameters.items() if n != context_param]
   public_sig = sig.replace(parameters=new_params)
 
+  base_fn: Any = fn
+  while isinstance(base_fn, functools.partial):
+    base_fn = base_fn.func
+  wraps_target = (
+      base_fn if inspect.isroutine(base_fn) else getattr(base_fn, "__call__")
+  )
+
   if _is_async(fn):
 
-    @functools.wraps(fn)
+    @functools.wraps(wraps_target)
     async def _proxy(*args: Any, **kwargs: Any) -> Any:
       return await fn(*args, **kwargs)
 
   else:
 
-    @functools.wraps(fn)
+    @functools.wraps(wraps_target)
     def _proxy(*args: Any, **kwargs: Any) -> Any:
       return fn(*args, **kwargs)
 
+  _proxy.__name__ = get_tool_name(fn)
+  _proxy.__doc__ = get_tool_doc(fn) or None
   setattr(_proxy, "__signature__", public_sig)
   if (
       hasattr(_proxy, "__annotations__")
@@ -260,13 +314,13 @@ class ToolWithSchema:
       pass
     self.input_schema = input_schema
     if not getattr(self, "__name__", None):
-      self.__name__ = getattr(fn, "__name__", None) or type(fn).__name__
+      self.__name__ = get_tool_name(fn)
     if not getattr(self, "__qualname__", None):
       self.__qualname__ = (
           getattr(fn, "__qualname__", None) or type(fn).__qualname__
       )
     if not getattr(self, "__doc__", None):
-      self.__doc__ = getattr(fn, "__doc__", None)
+      self.__doc__ = get_tool_doc(fn) or None
 
   def __call__(self, *args: Any, **kwargs: Any) -> Any:
     return self.fn(*args, **kwargs)
@@ -279,6 +333,8 @@ def _is_async(callable_obj: Any) -> bool:
   """Returns True if the callable is async (coroutine function or __call__)."""
   if isinstance(callable_obj, ToolWithSchema):
     return _is_async(callable_obj.fn)
+  if isinstance(callable_obj, functools.partial):
+    return _is_async(callable_obj.func)
   return inspect.iscoroutinefunction(callable_obj) or (
       hasattr(callable_obj, "__call__")
       and inspect.iscoroutinefunction(callable_obj.__call__)
@@ -325,7 +381,7 @@ class ToolRunner:
     Raises:
       ValueError: If a tool with the same name is already registered.
     """
-    tool_name = name or getattr(tool, "__name__", None) or type(tool).__name__
+    tool_name = name or get_tool_name(tool)
     if tool_name in self._tools:
       raise ValueError(f"Tool '{tool_name}' is already registered.")
     self._tools[tool_name] = tool
