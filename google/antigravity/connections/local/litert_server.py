@@ -14,6 +14,7 @@
 
 """LiteRT OpenAI HTTP Server loopback."""
 
+import base64
 import contextlib
 import http.server
 import json
@@ -175,8 +176,108 @@ def _format_openai_tool_call(
   }
 
 
+def _translate_openai_content(
+    content: str | list[str | dict[str, Any]] | None,
+) -> Any:
+  """Translates OpenAI message content into LiteRT-LM format.
+
+  See OpenAI Chat Completions message format reference:
+  https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
+
+  When `content` is a list, each element can be a plain `str` or a `dict` with
+  one of the following structures:
+
+  - Text: `{"type": "text", "text": "..."}`
+  - Image URL / data URI:
+    `{"type": "image_url", "image_url": {"url": "data:image/...;base64,..."}}`
+    or `{"type": "image_url", "image_url": {"url": "file:///path/to/img"}}`
+  - Image part: `{"type": "image", "blob": "<base64>"}` or
+    `{"type": "image", "path": "/path/to/img"}`
+  - Input audio: `{"type": "input_audio", "input_audio": {"data": "<base64>"}}`
+  - Audio part: `{"type": "audio", "blob": "<base64>"}` or
+    `{"type": "audio", "path": "/path/to/audio"}`
+
+  Args:
+    content: Plain text string, `None`, or a list of multimodal content parts.
+
+  Returns:
+    A plain `str` when `content` is a string or `None` (or when `litert_lm` is
+    unavailable), or a `litert_lm.Contents` instance when `content` is a list
+    of content parts.
+
+  Raises:
+    ValueError: If a content part in `content` is malformed or has an
+      unsupported type.
+  """
+  if litert_lm is None or not isinstance(content, list):
+    return content or ""
+
+  parts = []
+  for part in content:
+    if isinstance(part, str):
+      parts.append(litert_lm.Content.Text(part))
+    elif isinstance(part, dict):
+      part_type = part.get("type")
+      if part_type == "text":
+        parts.append(litert_lm.Content.Text(part.get("text", "")))
+      elif part_type == "image_url":
+        image_url = part.get("image_url", {})
+        url = image_url.get("url", "") if isinstance(image_url, dict) else ""
+        if url.startswith("data:"):
+          if "," not in url:
+            raise ValueError("Invalid data URL format")
+          header, data = url.split(",", 1)
+          if "base64" not in header:
+            raise ValueError(
+                "Unsupported data URL format (only base64 is supported)"
+            )
+          parts.append(litert_lm.Content.ImageBytes(base64.b64decode(data)))
+        else:
+          path = url[7:] if url.startswith("file://") else url
+          if not path:
+            raise ValueError("Empty image_url")
+          parts.append(litert_lm.Content.ImageFile(path))
+      elif part_type == "image":
+        if "blob" in part:
+          parts.append(
+              litert_lm.Content.ImageBytes(base64.b64decode(part["blob"]))
+          )
+        elif "path" in part:
+          parts.append(litert_lm.Content.ImageFile(part["path"]))
+        else:
+          raise ValueError(
+              "Invalid image content part: missing 'blob' or 'path'"
+          )
+      elif part_type == "input_audio":
+        input_audio = part.get("input_audio", {})
+        data = (
+            input_audio.get("data", "") if isinstance(input_audio, dict) else ""
+        )
+        if not data:
+          raise ValueError("Empty input_audio data")
+        parts.append(litert_lm.Content.AudioBytes(base64.b64decode(data)))
+      elif part_type == "audio":
+        if "blob" in part:
+          parts.append(
+              litert_lm.Content.AudioBytes(base64.b64decode(part["blob"]))
+          )
+        elif "path" in part:
+          parts.append(litert_lm.Content.AudioFile(part["path"]))
+        else:
+          raise ValueError(
+              "Invalid audio content part: missing 'blob' or 'path'"
+          )
+      else:
+        raise ValueError(f"Unsupported content part type: {part_type!r}")
+    else:
+      raise ValueError(f"Unsupported content part: {type(part)}")
+
+  return litert_lm.Contents.of(parts)
+
+
 def _build_assistant_message(
-    content: str, tool_calls_payload: Any = None
+    content: str | list[str | dict[str, Any]] | None,
+    tool_calls_payload: Any = None,
 ) -> Any:
   """Builds a normalized LiteRT-LM assistant Message from text and tool calls.
 
@@ -185,7 +286,9 @@ def _build_assistant_message(
   `conversation_cache_key`, ensuring both produce identical `Message` objects.
 
   Args:
-    content: Assistant text content.
+    content: Assistant text string, `None`, or a list of OpenAI multimodal
+      content parts (see `_translate_openai_content` for supported part
+      schemas).
     tool_calls_payload: Optional list of OpenAI-formatted tool call dicts.
 
   Returns:
@@ -215,9 +318,12 @@ def _build_assistant_message(
                 arguments=tc_args,
             )
         )
-  content_obj = (
-      litert_lm.Contents.of(content) if content else litert_lm.Contents.empty()
-  )
+  if isinstance(content, list):
+    content_obj = _translate_openai_content(content)
+  elif content:
+    content_obj = litert_lm.Contents.of(content)
+  else:
+    content_obj = litert_lm.Contents.empty()
   return litert_lm.Message.model(
       contents=content_obj,
       tool_calls=litert_tool_calls,
@@ -418,15 +524,19 @@ class LiteRTOpenAIHandler(http.server.BaseHTTPRequestHandler):
           self.send_error(400, "Corrupted history frame")
           return
         role = m.get("role")
-        content = m.get("content") or ""
+        raw_content = m.get("content")
         if role in ("system", "developer"):
-          litert_messages.append(litert_lm.Message.system(content))
+          litert_messages.append(
+              litert_lm.Message.system(_translate_openai_content(raw_content))
+          )
         elif role == "user":
-          litert_messages.append(litert_lm.Message.user(content))
+          litert_messages.append(
+              litert_lm.Message.user(_translate_openai_content(raw_content))
+          )
         elif role in ("assistant", "model"):
           tool_calls_payload = m.get("tool_calls", [])
           litert_messages.append(
-              _build_assistant_message(content, tool_calls_payload)
+              _build_assistant_message(raw_content, tool_calls_payload)
           )
         elif role == "tool":
           name = m.get("name")
@@ -448,8 +558,9 @@ class LiteRTOpenAIHandler(http.server.BaseHTTPRequestHandler):
           # Merge consecutive `role == "tool"` messages into a single
           # `Message.tool` turn so parallel tool calls in a single assistant
           # turn match the cached LiteRT conversation history.
+          tool_content = raw_content or ""
           pending_tool_responses.append(
-              litert_lm.Content.ToolResponse(name=name, response=content)
+              litert_lm.Content.ToolResponse(name=name, response=tool_content)
           )
           next_msg = messages[idx + 1] if idx + 1 < len(messages) else None
           if not isinstance(next_msg, dict) or next_msg.get("role") != "tool":

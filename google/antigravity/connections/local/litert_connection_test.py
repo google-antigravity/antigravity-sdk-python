@@ -14,6 +14,7 @@
 
 """Unit tests for LiteRTConnectionStrategy and LiteRTAgentConfig."""
 
+import base64
 import http.server
 import json
 import logging
@@ -186,6 +187,97 @@ class MockTool:
     return None
 
 
+class MockImageBytes:
+
+  def __init__(self, data: bytes):
+    self.bytes = data
+
+  def to_json(self):
+    return {
+        "type": "image",
+        "blob": base64.b64encode(self.bytes).decode("utf-8"),
+    }
+
+  def __eq__(self, other):
+    return isinstance(other, MockImageBytes) and self.bytes == other.bytes
+
+
+class MockImageFile:
+
+  def __init__(self, path: str):
+    self.absolute_path = path
+
+  def to_json(self):
+    return {"type": "image", "path": self.absolute_path}
+
+  def __eq__(self, other):
+    return (
+        isinstance(other, MockImageFile)
+        and self.absolute_path == other.absolute_path
+    )
+
+
+class MockAudioBytes:
+
+  def __init__(self, data: bytes):
+    self.bytes = data
+
+  def to_json(self):
+    return {
+        "type": "audio",
+        "blob": base64.b64encode(self.bytes).decode("utf-8"),
+    }
+
+  def __eq__(self, other):
+    return isinstance(other, MockAudioBytes) and self.bytes == other.bytes
+
+
+class MockAudioFile:
+
+  def __init__(self, path: str):
+    self.absolute_path = path
+
+  def to_json(self):
+    return {"type": "audio", "path": self.absolute_path}
+
+  def __eq__(self, other):
+    return (
+        isinstance(other, MockAudioFile)
+        and self.absolute_path == other.absolute_path
+    )
+
+
+class MockSupportedModalities:
+
+  def __init__(
+      self, vision: bool = False, audio: bool = False, text: bool = True
+  ):
+    self.vision = vision
+    self.audio = audio
+    self.text = text
+
+
+class MockModelInfo:
+
+  def __init__(self, model_path: str):
+    self.model_path = model_path
+    self.input_modalities = MockSupportedModalities()
+    self.closed = False
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    self.close()
+
+  def supported_backends_for_modality(self, modality):
+    del modality  # Unused.
+    return ["cpu"]
+
+  def close(self):
+    self.closed = True
+
+
 mock_litert = mock.MagicMock()
 mock_litert.Engine = MockEngine
 mock_litert.Backend.CPU = lambda: "cpu"
@@ -200,9 +292,17 @@ mock_litert.Message.model = lambda contents=None, tool_calls=None, **kw: {
 }
 mock_litert.Message.tool = lambda c: {"role": "tool", "content": c}
 mock_litert.Contents = MockContents
+mock_litert.Content.Text = MockText
+mock_litert.Content.ImageBytes = MockImageBytes
+mock_litert.Content.ImageFile = MockImageFile
+mock_litert.Content.AudioBytes = MockAudioBytes
+mock_litert.Content.AudioFile = MockAudioFile
 mock_litert.Content.ToolResponse = MockToolResponse
 mock_litert.Tool = MockTool
 mock_litert.ToolCall = MockToolCall
+mock_litert.ModelInfo = MockModelInfo
+mock_litert.LiteRtLmModality = mock.MagicMock()
+mock_litert.LiteRtLmModality.VISION = "vision"
 
 sys.modules["litert_lm"] = mock_litert
 
@@ -2182,6 +2282,643 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(len(engine.conversations), warmup_conv_count + 1)
     self.assertFalse(turn1_conv.exited)
     self.assertEqual(len(turn1_conv.sent_prompts), 2)
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_image_url_base64(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify image_url with data: base64 translates to ImageBytes."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    raw_bytes = b"jpeg_image_data_test"
+    b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+    payload = {
+        "model": "model.litertlm",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this photo:"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"},
+                },
+            ],
+        }],
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req) as r:
+      self.assertEqual(r.status, 200)
+
+    conv = strategy._engine.conversations[-1]
+    prompt = conv.sent_prompts[-1]
+    self.assertEqual(prompt["role"], "user")
+    contents = prompt["content"].contents
+    self.assertEqual(len(contents), 2)
+    self.assertIsInstance(contents[0], MockText)
+    self.assertEqual(contents[0].text, "Describe this photo:")
+    self.assertIsInstance(contents[1], MockImageBytes)
+    self.assertEqual(contents[1].bytes, raw_bytes)
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_image_url_file_and_raw_path(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify image_url with file:// and raw path translates to ImageFile."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    payload = {
+        "model": "model.litertlm",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "file:///path/to/diagram.png"},
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "/path/to/second_diagram.png"},
+                },
+            ],
+        }],
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req) as r:
+      self.assertEqual(r.status, 200)
+
+    conv = strategy._engine.conversations[-1]
+    prompt = conv.sent_prompts[-1]
+    contents = prompt["content"].contents
+    self.assertEqual(len(contents), 2)
+    self.assertIsInstance(contents[0], MockImageFile)
+    self.assertEqual(contents[0].absolute_path, "/path/to/diagram.png")
+    self.assertIsInstance(contents[1], MockImageFile)
+    self.assertEqual(contents[1].absolute_path, "/path/to/second_diagram.png")
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_image_blob_and_path(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify image part with blob and path translates to ImageBytes and ImageFile."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    raw_bytes = b"blob_image_data"
+    b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+    payload = {
+        "model": "model.litertlm",
+        "messages": [{
+            "role": "user",
+            "content": [
+                "Compare these two images:",
+                {"type": "image", "blob": b64_str},
+                {"type": "image", "path": "/media/chart.png"},
+            ],
+        }],
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req) as r:
+      self.assertEqual(r.status, 200)
+
+    conv = strategy._engine.conversations[-1]
+    prompt = conv.sent_prompts[-1]
+    contents = prompt["content"].contents
+    self.assertEqual(len(contents), 3)
+    self.assertIsInstance(contents[0], MockText)
+    self.assertEqual(contents[0].text, "Compare these two images:")
+    self.assertIsInstance(contents[1], MockImageBytes)
+    self.assertEqual(contents[1].bytes, raw_bytes)
+    self.assertIsInstance(contents[2], MockImageFile)
+    self.assertEqual(contents[2].absolute_path, "/media/chart.png")
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_audio_input(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify input_audio and audio parts translate to AudioBytes and AudioFile."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    raw_audio = b"pcm_audio_bytes"
+    b64_str = base64.b64encode(raw_audio).decode("utf-8")
+    payload = {
+        "model": "model.litertlm",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "input_audio", "input_audio": {"data": b64_str}},
+                {"type": "audio", "blob": b64_str},
+                {"type": "audio", "path": "/audio/voice.wav"},
+            ],
+        }],
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req) as r:
+      self.assertEqual(r.status, 200)
+
+    conv = strategy._engine.conversations[-1]
+    prompt = conv.sent_prompts[-1]
+    contents = prompt["content"].contents
+    self.assertEqual(len(contents), 3)
+    self.assertIsInstance(contents[0], MockAudioBytes)
+    self.assertEqual(contents[0].bytes, raw_audio)
+    self.assertIsInstance(contents[1], MockAudioBytes)
+    self.assertEqual(contents[1].bytes, raw_audio)
+    self.assertIsInstance(contents[2], MockAudioFile)
+    self.assertEqual(contents[2].absolute_path, "/audio/voice.wav")
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_error_handling(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify malformed and invalid multimodal parts return 400 Bad Request."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    invalid_contents = [
+        # Data URL missing comma
+        [{"type": "image_url", "image_url": {"url": "data:image/jpeg"}}],
+        # Data URL missing base64
+        [{
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;charset=utf-8,hello"},
+        }],
+        # Empty image_url
+        [{"type": "image_url", "image_url": {"url": ""}}],
+        # Corrupted base64
+        [{
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,not-valid-b64-!"},
+        }],
+        # Image missing blob and path
+        [{"type": "image"}],
+        # input_audio missing data
+        [{"type": "input_audio", "input_audio": {}}],
+        # audio missing blob and path
+        [{"type": "audio"}],
+        # Non-str / non-dict content part element
+        [123],
+        # Unsupported part type
+        [{"type": "video_stream", "url": "http://stream.mp4"}],
+    ]
+
+    for content_part in invalid_contents:
+      payload = {
+          "model": "model.litertlm",
+          "messages": [{"role": "user", "content": content_part}],
+          "stream": False,
+      }
+      req = urllib.request.Request(
+          f"{strategy._openai_server_url}/v1/chat/completions",
+          data=json.dumps(payload).encode("utf-8"),
+          headers={"Content-Type": "application/json"},
+      )
+      with self.assertRaises(urllib.error.HTTPError) as ctx:
+        with _urlopen_no_proxy(req):
+          pass
+      self.assertEqual(
+          ctx.exception.code, 400, f"Expected 400 for {content_part}"
+      )
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_multimodal_conversation_caching_and_reuse(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify multi-turn conversation caching hits and reuses conversation with multimodal messages."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+    )
+    await strategy.__aenter__()
+    self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+
+    warmup_conv_count = len(strategy._engine.conversations)
+
+    raw_bytes = b"multimodal_turn_image"
+    b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+    system_list_content = [
+        {"type": "text", "text": "You are a helpful vision assistant."}
+    ]
+    user_multimodal_content = [
+        {"type": "text", "text": "What is in this diagram?"},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64_str}"},
+        },
+    ]
+
+    # Turn 1: user sends multimodal prompt
+    payload_t1 = {
+        "model": "model.litertlm",
+        "messages": [
+            {"role": "system", "content": system_list_content},
+            {"role": "user", "content": user_multimodal_content},
+        ],
+        "stream": False,
+    }
+    req1 = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload_t1).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req1) as r:
+      self.assertEqual(r.status, 200)
+
+    self.assertEqual(len(strategy._engine.conversations), warmup_conv_count + 1)
+    conv1 = strategy._engine.conversations[-1]
+    self.assertEqual(len(conv1.sent_prompts), 1)
+
+    # Turn 2: send turn 1 history + assistant response + new user turn
+    payload_t2 = {
+        "model": "model.litertlm",
+        "messages": [
+            {"role": "system", "content": system_list_content},
+            {"role": "user", "content": user_multimodal_content},
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Mocked sync reply."}],
+            },
+            {"role": "user", "content": "Can you summarize it in 3 words?"},
+        ],
+        "stream": False,
+    }
+    req2 = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload_t2).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req2) as r:
+      self.assertEqual(r.status, 200)
+
+    # Verify conversation cache hit: no new conversation created
+    self.assertEqual(
+        len(strategy._engine.conversations),
+        warmup_conv_count + 1,
+        "Expected conversation cache HIT to reuse existing conversation",
+    )
+    self.assertEqual(len(conv1.sent_prompts), 2)
+    self.assertEqual(
+        conv1.sent_prompts[1]["content"], "Can you summarize it in 3 words?"
+    )
+
+    # Turn 3: send different context (modified image) -> cache MISS
+    different_b64 = base64.b64encode(b"different_image_bytes").decode("utf-8")
+    payload_t3 = {
+        "model": "model.litertlm",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is in this diagram?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{different_b64}"
+                        },
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "Mocked sync reply."},
+            {"role": "user", "content": "Different follow-up question"},
+        ],
+        "stream": False,
+    }
+    req3 = urllib.request.Request(
+        f"{strategy._openai_server_url}/v1/chat/completions",
+        data=json.dumps(payload_t3).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with _urlopen_no_proxy(req3) as r:
+      self.assertEqual(r.status, 200)
+
+    # Verify conversation cache miss: new conversation created
+    self.assertEqual(
+        len(strategy._engine.conversations),
+        warmup_conv_count + 2,
+        "Expected conversation cache MISS to create a new conversation",
+    )
+
+  def test_detect_default_vision_backend(self):
+    """Verify _detect_default_vision_backend correctly identifies vision modalities."""
+    # 1. Model without vision returns None
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = False
+      mock_info.return_value = mock_instance
+      self.assertIsNone(
+          litert_connection._detect_default_vision_backend(
+              "/models/text_only.litertlm"
+          )
+      )
+
+    # 2. Model with vision and GPU supported backend
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = True
+      mock_instance.supported_backends_for_modality.return_value = [
+          "gpu",
+          "cpu",
+      ]
+      mock_info.return_value = mock_instance
+      self.assertEqual(
+          litert_connection._detect_default_vision_backend(
+              "/models/vision_gpu.litertlm"
+          ),
+          litert_connection_config.LiteRTBackend.GPU,
+      )
+
+    # 3. Model with vision and non-CPU/GPU (e.g. npu) supported backend -> falls back to CPU
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = True
+      mock_instance.supported_backends_for_modality.return_value = ["npu"]
+      mock_info.return_value = mock_instance
+      self.assertEqual(
+          litert_connection._detect_default_vision_backend(
+              "/models/vision_npu.litertlm"
+          ),
+          litert_connection_config.LiteRTBackend.CPU,
+      )
+
+    # 4. Model with vision and ["npu", "gpu"] -> selects GPU
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = True
+      mock_instance.supported_backends_for_modality.return_value = [
+          "npu",
+          "gpu",
+      ]
+      mock_info.return_value = mock_instance
+      self.assertEqual(
+          litert_connection._detect_default_vision_backend(
+              "/models/vision_npu_gpu.litertlm"
+          ),
+          litert_connection_config.LiteRTBackend.GPU,
+      )
+
+    # 5. Model with vision and CPU supported backend
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = True
+      mock_instance.supported_backends_for_modality.return_value = ["cpu"]
+      mock_info.return_value = mock_instance
+      self.assertEqual(
+          litert_connection._detect_default_vision_backend(
+              "/models/vision_cpu.litertlm"
+          ),
+          litert_connection_config.LiteRTBackend.CPU,
+      )
+
+    # 6. Model with vision but supported_backends raises or is empty -> defaults to CPU
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo"
+    ) as mock_info:
+      mock_instance = mock.MagicMock()
+      mock_instance.__enter__.return_value = mock_instance
+      mock_instance.input_modalities.vision = True
+      mock_instance.supported_backends_for_modality.side_effect = RuntimeError(
+          "Failed"
+      )
+      mock_info.return_value = mock_instance
+      self.assertEqual(
+          litert_connection._detect_default_vision_backend(
+              "/models/vision_fallback.litertlm"
+          ),
+          litert_connection_config.LiteRTBackend.CPU,
+      )
+
+    # 7. ModelInfo initialization failure raises exception -> returns None
+    with mock.patch.object(
+        litert_connection.litert_lm,
+        "ModelInfo",
+        side_effect=RuntimeError("Corrupt file or section error"),
+    ):
+      self.assertIsNone(
+          litert_connection._detect_default_vision_backend(
+              "/models/corrupt.litertlm"
+          )
+      )
+
+    # 8. litert_lm is None -> returns None
+    with mock.patch.object(litert_connection, "litert_lm", None):
+      self.assertIsNone(
+          litert_connection._detect_default_vision_backend(
+              "/models/any.litertlm"
+          )
+      )
+
+    # 9. litert_lm missing ModelInfo attribute -> returns None
+    mock_litert_without_model_info = mock.MagicMock(spec=[])
+    with mock.patch.object(
+        litert_connection, "litert_lm", mock_litert_without_model_info
+    ):
+      self.assertIsNone(
+          litert_connection._detect_default_vision_backend(
+              "/models/any.litertlm"
+          )
+      )
+
+    # 10. ModelInfo context manager cleans up (__exit__ is invoked)
+    context_mock = MockModelInfo("/models/ctx.litertlm")
+    context_mock.input_modalities.vision = True
+    with mock.patch.object(
+        litert_connection.litert_lm, "ModelInfo", return_value=context_mock
+    ):
+      backend = litert_connection._detect_default_vision_backend(
+          "/models/ctx.litertlm"
+      )
+      self.assertEqual(backend, litert_connection_config.LiteRTBackend.CPU)
+      self.assertTrue(context_mock.closed)
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_vision_backend_auto_detection_and_override_in_aenter(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify vision_backend auto-detection in __aenter__ and precedence."""
+    mock_exists.return_value = True
+    mock_super_enter.return_value = None
+    mock_popen.return_value = mock.MagicMock()
+
+    # Case 1: Model supports vision, vision_backend is None -> auto-detected
+    # as GPU
+    with mock.patch.object(
+        litert_connection, "_detect_default_vision_backend"
+    ) as mock_detect:
+      mock_detect.return_value = litert_connection_config.LiteRTBackend.GPU
+      config = litert_connection_config.LiteRTAgentConfig(
+          model_path="/tmp/vision_model.litertlm",
+          backend=litert_connection_config.LiteRTBackend.CPU,
+          vision_backend=None,
+      )
+      strategy = config.create_strategy(
+          tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+      )
+      await strategy.__aenter__()
+      self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+      self.assertEqual(strategy._engine.kwargs["vision_backend"], "gpu")
+
+    # Case 2: Explicit vision_backend override takes precedence over
+    # auto-detection
+    with mock.patch.object(
+        litert_connection, "_detect_default_vision_backend"
+    ) as mock_detect:
+      mock_detect.return_value = litert_connection_config.LiteRTBackend.CPU
+      config = litert_connection_config.LiteRTAgentConfig(
+          model_path="/tmp/vision_model.litertlm",
+          backend=litert_connection_config.LiteRTBackend.CPU,
+          vision_backend=litert_connection_config.LiteRTBackend.GPU,
+      )
+      strategy = config.create_strategy(
+          tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+      )
+      await strategy.__aenter__()
+      self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+      self.assertEqual(strategy._engine.kwargs["vision_backend"], "gpu")
+
+    # Case 3: Model does not support vision and vision_backend is None ->
+    # engine vision_backend is None
+    with mock.patch.object(
+        litert_connection, "_detect_default_vision_backend"
+    ) as mock_detect:
+      mock_detect.return_value = None
+      config = litert_connection_config.LiteRTAgentConfig(
+          model_path="/tmp/text_only_model.litertlm",
+          backend=litert_connection_config.LiteRTBackend.CPU,
+          vision_backend=None,
+      )
+      strategy = config.create_strategy(
+          tool_runner=mock.MagicMock(), hook_runner=mock.MagicMock()
+      )
+      await strategy.__aenter__()
+      self.addAsyncCleanup(strategy.__aexit__, None, None, None)
+      self.assertIsNone(strategy._engine.kwargs["vision_backend"])
 
 
 class DeriveLiteRTCompactionConfigTest(unittest.TestCase):
