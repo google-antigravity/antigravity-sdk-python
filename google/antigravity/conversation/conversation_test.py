@@ -223,6 +223,112 @@ class ConversationReceiveStepsTest(unittest.IsolatedAsyncioTestCase):
     indices.clear()
     self.assertEqual(len(conv.compaction_indices), 1)
 
+  async def test_compaction_streaming_active_then_done_tracks_only_done(self):
+    """Verifies only completed (DONE) compaction steps enter compaction_indices."""
+    regular = _make_step("text", step_index=1)
+    compacting = _make_step(
+        "Context compaction",
+        step_index=2,
+        step_type=types.StepType.COMPACTION,
+        source=types.StepSource.SYSTEM,
+        status=types.StepStatus.ACTIVE,
+    )
+    compacted = _make_step(
+        "Context compaction",
+        step_index=2,
+        step_type=types.StepType.COMPACTION,
+        source=types.StepSource.SYSTEM,
+        status=types.StepStatus.DONE,
+    )
+    after = _make_step("more", step_index=3)
+
+    mock_connection = mock.MagicMock(spec=connection.Connection)
+
+    async def mock_generator():
+      yield regular
+      yield compacting
+      yield compacted
+      yield after
+
+    mock_connection.receive_steps.return_value = mock_generator()
+    conv = conversation.Conversation(mock_connection)
+
+    async for _ in conv.receive_steps():
+      pass
+
+    self.assertEqual(conv.compaction_indices, [2])
+    self.assertEqual(len(conv.history), 4)
+
+    seeded = conversation.Conversation(
+        mock_connection, history=[regular, compacting, compacted, after]
+    )
+    self.assertEqual(seeded.compaction_indices, [2])
+
+  async def test_compaction_aborted_active_not_tracked(self):
+    """Verifies an un-stopped ACTIVE compaction step is excluded from compaction_indices."""
+    compacting = _make_step(
+        "Context compaction",
+        step_index=1,
+        step_type=types.StepType.COMPACTION,
+        source=types.StepSource.SYSTEM,
+        status=types.StepStatus.ACTIVE,
+    )
+    mock_connection = mock.MagicMock(spec=connection.Connection)
+
+    async def mock_generator():
+      yield compacting
+
+    mock_connection.receive_steps.return_value = mock_generator()
+    conv = conversation.Conversation(mock_connection)
+
+    async for _ in conv.receive_steps():
+      pass
+
+    self.assertEqual(conv.compaction_indices, [])
+    self.assertEqual(len(conv.history), 1)
+
+  async def test_compaction_subagent_excluded_from_compaction_indices(self):
+    """Verifies completed subagent COMPACTION steps do not enter root compaction_indices."""
+    root_step = _make_step("root work", step_index=1)
+    child_compacted = _make_step(
+        "Context compaction",
+        step_index=1,
+        step_type=types.StepType.COMPACTION,
+        source=types.StepSource.SYSTEM,
+        status=types.StepStatus.DONE,
+    )
+    child_compacted.depth = 1
+    child_compacted.trajectory_id = "sub-1"
+    child_compacted.parent_trajectory_id = "root"
+    root_compacted = _make_step(
+        "Context compaction",
+        step_index=2,
+        step_type=types.StepType.COMPACTION,
+        source=types.StepSource.SYSTEM,
+        status=types.StepStatus.DONE,
+    )
+
+    mock_connection = mock.MagicMock(spec=connection.Connection)
+
+    async def mock_generator():
+      yield root_step
+      yield child_compacted
+      yield root_compacted
+
+    mock_connection.receive_steps.return_value = mock_generator()
+    conv = conversation.Conversation(mock_connection)
+
+    async for _ in conv.receive_steps():
+      pass
+
+    self.assertEqual(conv.compaction_indices, [2])
+    self.assertEqual(len(conv.history), 3)
+
+    seeded = conversation.Conversation(
+        mock_connection, history=[root_step, child_compacted, root_compacted]
+    )
+    self.assertEqual(seeded.compaction_indices, [2])
+
 
 class ConversationReceiveChunksTest(unittest.IsolatedAsyncioTestCase):
   """Tests covering receive_chunks text, thought, and tool-call delta routing."""

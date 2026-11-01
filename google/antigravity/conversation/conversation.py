@@ -33,6 +33,17 @@ from google.antigravity.connections import connection as connection_lib
 _DEFAULT_MAX_HISTORY_SIZE = 10_000
 
 
+def _is_root_compaction(step: types.Step) -> bool:
+  """Returns True when a step marks a completed root-conversation compaction."""
+  # Subagent steps (depth > 0) are multiplexed into the same stream; compacting
+  # a subagent's isolated context does not compact the root conversation.
+  return (
+      step.type == types.StepType.COMPACTION
+      and step.status == types.StepStatus.DONE
+      and step.depth == 0
+  )
+
+
 class Conversation:
   """Stateful session wrapping a single conversation with the agent.
 
@@ -65,7 +76,7 @@ class Conversation:
     self._turn_start_usage: types.UsageMetadata | None = None
     for step in history or []:
       self._steps.append(step)
-      if step.type == types.StepType.COMPACTION:
+      if _is_root_compaction(step):
         self._compaction_indices.append(len(self._steps) - 1)
     self._enforce_max_history()
 
@@ -135,7 +146,7 @@ class Conversation:
     """
     async for step in self._connection.receive_steps():
       self._steps.append(step)
-      if step.type == types.StepType.COMPACTION:
+      if _is_root_compaction(step):
         self._compaction_indices.append(len(self._steps) - 1)
       self._enforce_max_history()
       yield step
