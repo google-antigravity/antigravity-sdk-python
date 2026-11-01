@@ -91,6 +91,7 @@ message ToolCallStep {
     .genai.GenerateImageCallStep generate_image_call = 17;
     .genai.ProcessingCallStep processing_call = 18;
     .genai.SkillLookupCallStep skill_lookup_call = 19;
+    .genai.ManageTaskCallStep manage_task_call = 26;
   }
 }
 message ToolResultStep {
@@ -115,6 +116,7 @@ message ToolResultStep {
     .genai.GenerateImageResultStep generate_image_result = 16;
     .genai.ProcessingResultStep processing_result = 17;
     .genai.SkillLookupResultStep skill_lookup_result = 19;
+    .genai.ManageTaskResultStep manage_task_result = 26;
   }
 }
 message FunctionCallStep {
@@ -371,4 +373,30 @@ message SkillLookupCallStep {
 message SkillLookupResultStep {
   repeated string resolved_skill_names = 1;
   string error_message = 2;
+}
+message ManageTaskCallStep {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_LIST = 1;
+    ACTION_STATUS = 2;
+    ACTION_SEND_INPUT = 3;
+    ACTION_KILL = 4;
+  }
+  .genai.ManageTaskCallStep.Action action = 1;
+  string call_id = 2;
+  string input = 3;
+}
+message ManageTaskResultStep {
+  message Task {
+    string call_id = 1;
+    .genai.ManageTaskResultStep.Status status = 2;
+  }
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_RUNNING = 1;
+    STATUS_COMPLETED = 2;
+    STATUS_FAILED = 3;
+    STATUS_CANCELLED = 4;
+  }
+  repeated .genai.ManageTaskResultStep.Task tasks = 1;
 }
