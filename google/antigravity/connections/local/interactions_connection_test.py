@@ -138,6 +138,7 @@ class InteractionsConnectionUnitTest(unittest.IsolatedAsyncioTestCase):
     )
     strategy = cfg.create_strategy(tool_runner=None, hook_runner=None)
     self.mock_process.stderr.read.return_value = b"fatal handshake error"
+    self.ws.close = mock.AsyncMock(wraps=self.ws.close)
     await self.ws.queue.put(
         json.dumps({"event_type": "error", "error": {"message": "bad config"}})
     )
@@ -150,7 +151,29 @@ class InteractionsConnectionUnitTest(unittest.IsolatedAsyncioTestCase):
     ):
       with self.assertRaisesRegex(RuntimeError, "fatal handshake error"):
         await strategy.__aenter__()
+    self.ws.close.assert_awaited_once()
     self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_aenter_cancelled_error_kills_process_and_closes_ws(self):
+    cfg = local_connection_config.InteractionsAgentConfig(
+        api_key="test-key",
+    )
+    strategy = cfg.create_strategy(tool_runner=None, hook_runner=None)
+    self.ws.close = mock.AsyncMock(wraps=self.ws.close)
+    self.ws.recv = mock.AsyncMock(side_effect=asyncio.CancelledError())
+    with mock.patch.object(
+        strategy,
+        "_spawn_harness_and_connect_ws",
+        new=mock.AsyncMock(
+            return_value=(self.mock_process, self.ws, "ws://127.0.0.1:9999")
+        ),
+    ):
+      with self.assertRaises(asyncio.CancelledError):
+        await strategy.__aenter__()
+    self.ws.close.assert_awaited_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
 
   async def test_rejects_triggers(self):
     from google.antigravity.triggers import triggers  # pylint: disable=g-import-not-at-top

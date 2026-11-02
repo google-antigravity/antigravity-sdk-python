@@ -5086,6 +5086,91 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
     ):
       await harness.disconnect_sdk()
 
+  async def test_spawn_harness_early_stdout_eof_kills_and_reaps_process(self):
+    """Verifies localharness process is killed and reaped if stdout returns EOF."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.return_value = b""
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.stderr.read.return_value = b"early crash"
+    with mock.patch.object(
+        subprocess, "Popen", return_value=self.mock_process
+    ):
+      with self.assertRaisesRegex(
+          RuntimeError, "Failed to read length from stdout"
+      ):
+        await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_spawn_harness_cancelled_error_kills_and_reaps_process(self):
+    """Verifies localharness process is killed and reaped on CancelledError."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    serialized = localharness_pb2.OutputConfig(
+        port=8080, api_key="fake-key"
+    ).SerializeToString()
+    length_bytes = struct.pack("<I", len(serialized))
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.side_effect = [length_bytes, serialized]
+    self.mock_process.stderr = mock.MagicMock()
+    with (
+        mock.patch.object(subprocess, "Popen", return_value=self.mock_process),
+        mock.patch.object(
+            strategy,
+            "_connect_websocket",
+            new=mock.AsyncMock(side_effect=asyncio.CancelledError()),
+        ),
+    ):
+      with self.assertRaises(asyncio.CancelledError):
+        await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_aenter_handshake_exception_kills_process_and_closes_ws(self):
+    """Verifies Exception during __aenter__ cleans up WS and process."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    self.mock_process.stderr.read.return_value = b"handshake failure stderr"
+    ws = test_utils.TestWebSocket()
+    ws.close = mock.AsyncMock(side_effect=OSError("socket already broken"))
+    ws.recv = mock.AsyncMock(side_effect=ConnectionError("ws dropped"))
+    with mock.patch.object(
+        strategy,
+        "_spawn_harness_and_connect_ws",
+        new=mock.AsyncMock(
+            return_value=(self.mock_process, ws, "ws://127.0.0.1:9999")
+        ),
+    ):
+      with self.assertRaisesRegex(RuntimeError, "handshake failure stderr"):
+        await strategy.__aenter__()
+    ws.close.assert_awaited_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_aenter_cancelled_error_kills_process_and_closes_ws(self):
+    """Verifies BaseException/CancelledError during __aenter__ cleans up WS and process."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    ws = test_utils.TestWebSocket()
+    ws.close = mock.AsyncMock(wraps=ws.close)
+    ws.recv = mock.AsyncMock(side_effect=asyncio.CancelledError())
+    with mock.patch.object(
+        strategy,
+        "_spawn_harness_and_connect_ws",
+        new=mock.AsyncMock(
+            return_value=(self.mock_process, ws, "ws://127.0.0.1:9999")
+        ),
+    ):
+      with self.assertRaises(asyncio.CancelledError):
+        await strategy.__aenter__()
+    ws.close.assert_awaited_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
 
 class LocalConnectionUnexpectedCloseTest(unittest.IsolatedAsyncioTestCase):
   """Tests for error surfacing when the harness crashes mid-session."""

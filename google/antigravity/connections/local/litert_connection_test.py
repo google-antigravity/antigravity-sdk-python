@@ -14,6 +14,7 @@
 
 """Unit tests for LiteRTConnectionStrategy and LiteRTAgentConfig."""
 
+import asyncio
 import base64
 import http.server
 import json
@@ -872,6 +873,41 @@ class LiteRTConnectionTest(unittest.IsolatedAsyncioTestCase):
         await strategy.__aenter__()
       mock_shutdown.assert_called_once()
       mock_close.assert_called_once()
+
+  @mock.patch("os.path.exists")
+  @mock.patch("subprocess.Popen")
+  @mock.patch(
+      "google.antigravity.connections.local.local_connection.LocalConnectionStrategy.__aenter__"
+  )
+  async def test_aenter_rollback_on_cancelled_error(
+      self, mock_super_enter, mock_popen, mock_exists
+  ):
+    """Verify __aenter__ BaseException cleans up server and engine."""
+    mock_exists.return_value = True
+    mock_super_enter.side_effect = asyncio.CancelledError()
+    mock_popen.return_value = mock.MagicMock()
+
+    config = litert_connection_config.LiteRTAgentConfig(
+        model_path="/tmp/model.litertlm",
+        backend=litert_connection_config.LiteRTBackend.CPU,
+    )
+    strategy = config.create_strategy(
+        tool_runner=mock.MagicMock(),
+        hook_runner=mock.MagicMock(),
+    )
+    with (
+        mock.patch.object(
+            strategy, "_shutdown_server", wraps=strategy._shutdown_server
+        ) as mock_shutdown,
+        mock.patch.object(
+            strategy, "_close_engine", wraps=strategy._close_engine
+        ) as mock_close,
+    ):
+      with self.assertRaises(asyncio.CancelledError):
+        await strategy.__aenter__()
+      mock_shutdown.assert_called_once()
+      mock_close.assert_called_once()
+      self.assertIsNone(strategy._openai_server)
 
   @mock.patch.object(litert_connection.litert_server, "_LITERT_AVAILABLE", True)
   def test_openai_tool_base_class_inheritance(self):

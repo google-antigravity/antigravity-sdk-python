@@ -907,6 +907,15 @@ def to_system_instructions_proto(
   return proto
 
 
+def _kill_and_reap_process(process: subprocess.Popen[bytes]) -> None:
+  """Kills and best-effort reaps a subprocess without raising TimeoutExpired."""
+  process.kill()
+  try:
+    process.wait(timeout=1)
+  except subprocess.TimeoutExpired:
+    pass
+
+
 class LocalConnectionStrategy(connection.ConnectionStrategy):
   """Strategy for establishing a LocalConnection."""
 
@@ -1482,7 +1491,7 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
           last_exception = e
       await asyncio.sleep(0.1 * (2**attempt))
 
-    process.kill()
+    _kill_and_reap_process(process)
     stderr = ""
     if process.stderr is not None:
       stderr = process.stderr.read().decode("utf-8")
@@ -1524,30 +1533,46 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         env=merged_env,
     )
 
-    serialized = input_config.SerializeToString()
-    assert process.stdin is not None
-    assert process.stdout is not None
-    assert process.stderr is not None
-    # Note for humans: Pack length as 4-byte uint (little-endian)
-    process.stdin.write(struct.pack("<I", len(serialized)) + serialized)
-    process.stdin.flush()
-    raw_len = process.stdout.read(4)
-    if not raw_len:
-      stderr_output = process.stderr.read().decode("utf-8")
-      raise RuntimeError(
-          f"Failed to read length from stdout. Stderr: {stderr_output}"
+    try:
+      serialized = input_config.SerializeToString()
+      assert process.stdin is not None
+      assert process.stdout is not None
+      assert process.stderr is not None
+      # Note for humans: Pack length as 4-byte uint (little-endian)
+      process.stdin.write(struct.pack("<I", len(serialized)) + serialized)
+      process.stdin.flush()
+      raw_len = process.stdout.read(4)
+      if not raw_len:
+        stderr_output = process.stderr.read().decode("utf-8")
+        raise RuntimeError(
+            f"Failed to read length from stdout. Stderr: {stderr_output}"
+        )
+      length = struct.unpack("<I", raw_len)[0]
+      output_config = localharness_pb2.OutputConfig()
+      output_config.ParseFromString(process.stdout.read(length))
+      # Retry the WebSocket connection with backoff. The harness process may
+      # need a moment to start listening after writing its OutputConfig. We try
+      # localhost first and fall back to 127.0.0.1, as some environments may not
+      # resolve localhost.
+      ws, ws_url = await self._connect_websocket(
+          output_config.port, output_config.api_key, process
       )
-    length = struct.unpack("<I", raw_len)[0]
-    output_config = localharness_pb2.OutputConfig()
-    output_config.ParseFromString(process.stdout.read(length))
-    # Retry the WebSocket connection with backoff. The harness process may
-    # need a moment to start listening after writing its OutputConfig. We try
-    # localhost first and fall back to 127.0.0.1, as some environments may not
-    # resolve localhost.
-    ws, ws_url = await self._connect_websocket(
-        output_config.port, output_config.api_key, process
-    )
-    return process, ws, ws_url
+      return process, ws, ws_url
+    except BaseException:
+      _kill_and_reap_process(process)
+      raise
+
+  async def _cleanup_failed_handshake(
+      self, process: subprocess.Popen[bytes], ws: Any
+  ) -> None:
+    """Terminates the subprocess and closes the WebSocket on handshake error."""
+    try:
+      _kill_and_reap_process(process)
+    finally:
+      try:
+        await asyncio.wait_for(ws.close(), timeout=0.5)
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
 
   async def __aenter__(self) -> None:
     """Starts the backend."""
@@ -1580,12 +1605,15 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
             harness_config.harness_side_tools.run_command, sandbox_status
         )
     except Exception as e:
-      process.kill()
+      await self._cleanup_failed_handshake(process, ws)
       stderr_output = process.stderr.read().decode("utf-8")
       raise RuntimeError(
           f"Failed to initialize conversation at {ws_url}. Stderr:"
           f" {stderr_output}"
       ) from e
+    except BaseException:
+      await self._cleanup_failed_handshake(process, ws)
+      raise
     self._connection = LocalConnection(
         process=process,
         ws=ws,

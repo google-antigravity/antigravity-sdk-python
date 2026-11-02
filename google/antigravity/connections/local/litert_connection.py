@@ -398,7 +398,7 @@ class LiteRTConnectionStrategy(
       await super().__aenter__()
 
     # pylint: disable=broad-exception-caught
-    except Exception:
+    except BaseException:
       try:
         self._shutdown_server()
       finally:
