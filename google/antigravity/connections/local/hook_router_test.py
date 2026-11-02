@@ -1254,6 +1254,62 @@ class HookRouterPreToolTest(absltest.TestCase):
         local_connection_config.normalize_path_arguments(empty_args)
     )
 
+    # 6. Dot-segment and percent-encoded traversal segments are collapsed.
+    traversal_args = {
+        "file_path": "file:///workspace/src/../../etc/passwd",
+        "output_path": "file:///workspace/%2e%2e/%2e%2e/tmp/out.txt",
+        "directory_path": "/workspace/sub/../..",
+    }
+    self.assertEqual(
+        local_connection_config.normalize_path_arguments(traversal_args),
+        "/etc/passwd",
+    )
+    self.assertEqual(traversal_args["file_path"], "/etc/passwd")
+    self.assertEqual(traversal_args["output_path"], "/tmp/out.txt")
+    self.assertEqual(traversal_args["directory_path"], "/")
+
+  def test_handle_pre_tool_collapses_traversal_for_workspace_hook(self):
+    """Verifies a prefix-checking hook denies a traversal path via HookRouter."""
+
+    async def _test():
+      sent_events = []
+
+      @hooks.pre_tool_call_decide
+      async def workspace_only_hook(tc):
+        if tc.canonical_path and tc.canonical_path.startswith("/workspace/"):
+          return hooks.HookResult(allow=True)
+        return hooks.HookResult(allow=False, message="Outside workspace")
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[workspace_only_hook],
+      )
+
+      async def capture_send(event):
+        sent_events.append(event)
+
+      router = HookRouter(hook_runner, capture_send)
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_traversal_deny",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="view_file",
+              arguments_json=(
+                  '{"file_path":'
+                  ' "file:///workspace/src/%2e%2e/%2e%2e/etc/passwd"}'
+              ),
+          ),
+      )
+      await router.handle(req)
+
+      self.assertLen(sent_events, 1)
+      self.assertEqual(
+          sent_events[0].call_hook_response.pre_tool_result.decision,
+          localharness_pb2.PreToolResult.Decision.DENY,
+      )
+
+    asyncio.run(_test())
+
   def test_handle_pre_tool_mcp_server_name(self):
     """Verifies server_name flows from PreToolArgs for MCP tool calls."""
 

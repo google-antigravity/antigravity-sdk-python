@@ -88,6 +88,24 @@ class EventProcessorHelperTest(absltest.TestCase):
         "/tmp/clean-path",
     )
 
+  def test_normalize_wire_path_collapses_dot_segments(self):
+    self.assertEqual(
+        event_processor.normalize_wire_path(
+            "file:///dev/shm/workspace/../../../etc/passwd"
+        ),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        event_processor.normalize_wire_path(
+            "cns://el-d/home/user/workspace/../../other/kittens.md"
+        ),
+        "/cns/el-d/home/other/kittens.md",
+    )
+    self.assertEqual(
+        event_processor.normalize_wire_path("/tmp/ws/../../etc/passwd"),
+        "/etc/passwd",
+    )
+
   def test_make_step_id_with_trajectory(self):
     self.assertEqual(event_processor._make_step_id("traj_1", 5), "traj_1:5")
 
@@ -518,6 +536,20 @@ class LocalConnectionStepFromDictTest(absltest.TestCase):
         step.tool_calls[0].canonical_path,
         "/cns/el-d/home/user/workspace/kittens.md",
     )
+
+  def test_step_from_dict_collapses_traversal_segments(self):
+    """Verifies that LocalConnectionStep.from_dict collapses traversal segments."""
+    step = event_processor.LocalConnectionStep.from_dict({
+        "step_index": 1,
+        "trajectory_id": "traj_1",
+        "state": "STATE_WAITING_FOR_USER",
+        "view_file": {
+            "file_path": "file:///dev/shm/workspace/../../../etc/passwd"
+        },
+    })
+    self.assertLen(step.tool_calls, 1)
+    self.assertEqual(step.tool_calls[0].args.get("file_path"), "/etc/passwd")
+    self.assertEqual(step.tool_calls[0].canonical_path, "/etc/passwd")
 
   def test_step_from_dict_parses_parent_trajectory_id_and_depth(self):
     """Verifies that from_dict parses parent_trajectory_id and depth."""

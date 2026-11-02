@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import pathlib
+import posixpath
 import re
 from typing import Any, AsyncIterator, Callable, Mapping, Sequence, cast
 import urllib.parse
@@ -44,11 +45,19 @@ from google.antigravity.hooks import policy
 from google.antigravity.triggers import triggers as triggers_mod
 
 
+def _norm_native_path(p: str) -> str:
+  normalized = os.path.normpath(p)
+  if os.path is posixpath and normalized.startswith("//"):
+    return "/" + normalized.lstrip("/")
+  return normalized
+
+
 def normalize_wire_path(path: str) -> str:
   """Translates wire-format URIs to clean absolute filesystem paths.
 
   Paths arrive as file:/// or cns:// URIs over the wire protocol.
-  This converts them to platform-native absolute paths that user code expects.
+  This converts them to platform-native absolute paths that user code expects,
+  with `.` and `..` segments collapsed.
 
   Args:
     path: Raw path or URI string.
@@ -56,16 +65,29 @@ def normalize_wire_path(path: str) -> str:
   Returns:
     Normalized filesystem path string.
   """
+  if not path:
+    return path
   parsed = urllib.parse.urlparse(path)
   if parsed.scheme == "file":
     # urlparse("file:///abs/path").path == "/abs/path"
     # url2pathname converts URL path to platform-native path
-    return urllib.request.url2pathname(parsed.path)
+    url_path = (
+        "/" + parsed.path.lstrip("/")
+        if os.path is posixpath and parsed.path.startswith("//")
+        else parsed.path
+    )
+    return _norm_native_path(urllib.request.url2pathname(url_path))
   if parsed.scheme == "cns":
     # urlparse("cns://el-d/home/user/...").netloc == "el-d"
     # urlparse("cns://el-d/home/user/...").path == "/home/user/..."
     # Convert to the canonical /cns/<cell>/... absolute path format.
-    return "/cns/" + parsed.netloc + parsed.path
+    cns_subpath = urllib.parse.unquote(parsed.netloc + parsed.path)
+    normalized_subpath = posixpath.normpath("/" + cns_subpath.lstrip("/"))
+    return (
+        "/cns" if normalized_subpath == "/" else "/cns" + normalized_subpath
+    )
+  if not parsed.scheme or os.path.splitdrive(path)[0]:
+    return _norm_native_path(path)
   return path
 
 

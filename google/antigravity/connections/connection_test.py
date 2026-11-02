@@ -14,10 +14,12 @@
 
 """Validates default implementations in the Connection abstract base class."""
 
+import ntpath
 import os
 import pathlib
 from typing import Any, cast
 import unittest
+from unittest import mock
 import warnings
 import pydantic
 from google.antigravity import types
@@ -695,6 +697,66 @@ class SharedConnectionUtilsTest(unittest.TestCase):
         connection.normalize_wire_path("/already/plain/path"),
         "/already/plain/path",
     )
+    self.assertEqual(
+        connection.normalize_wire_path("file:///tmp/ws/../../etc/passwd"),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path(
+            "file:///tmp/ws/%2e%2e/%2e%2e/etc/passwd"
+        ),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path(
+            "cns://el-d/home/user/../../other/secret"
+        ),
+        "/cns/el-d/other/secret",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path(
+            "cns://el-d/home/user/%2e%2e/%2e%2e/other/secret"
+        ),
+        "/cns/el-d/other/secret",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("cns://el-d/../../tmp/ws/foo.py"),
+        "/cns/tmp/ws/foo.py",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("/tmp/ws/../../etc/passwd"),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("//tmp/ws/../../etc/passwd"),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("file:////tmp/ws/../../etc/passwd"),
+        "/etc/passwd",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("file:///%2fetc/passwd"),
+        "/etc/passwd",
+    )
+    with mock.patch.object(connection.os, "path", ntpath):
+      self.assertEqual(
+          connection.normalize_wire_path(r"C:\Users\alice\ws\..\..\secret.txt"),
+          r"C:\Users\secret.txt",
+      )
+      self.assertEqual(
+          connection.normalize_wire_path("cns://el-d/home/user/../other/data"),
+          "/cns/el-d/home/other/data",
+      )
+    self.assertEqual(
+        connection.normalize_wire_path("file:///tmp/./ws/./foo.py"),
+        "/tmp/ws/foo.py",
+    )
+    self.assertEqual(
+        connection.normalize_wire_path("https://example.com/a/../b"),
+        "https://example.com/a/../b",
+    )
+    self.assertEqual(connection.normalize_wire_path(""), "")
 
   def test_normalize_workspace_paths(self):
     self.assertEqual(connection.normalize_workspace_paths(None), [])
