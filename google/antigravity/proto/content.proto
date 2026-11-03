@@ -133,6 +133,32 @@ message DocumentContent {
     TYPE_UNSPECIFIED = 0;
     TYPE_PDF = 1 [(gaos.parsing.enum_value_name) = "application/pdf"];
     TYPE_CSV = 2 [(gaos.parsing.enum_value_name) = "text/csv"];
+    TYPE_PPTX = 3 [
+      (gaos.parsing.enum_value_name) =
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ];
+    TYPE_PPT = 4
+        [(gaos.parsing.enum_value_name) = "application/vnd.ms-powerpoint"];
+    TYPE_ODP = 5 [(gaos.parsing.enum_value_name) =
+                      "application/vnd.oasis.opendocument.presentation"];
+    TYPE_DOCX = 6 [
+      (gaos.parsing.enum_value_name) =
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ];
+    TYPE_DOC = 7 [(gaos.parsing.enum_value_name) = "application/msword"];
+    TYPE_DOTX = 8 [
+      (gaos.parsing.enum_value_name) =
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+    ];
+    TYPE_ODT = 9 [(gaos.parsing.enum_value_name) =
+                      "application/vnd.oasis.opendocument.text"];
+    TYPE_XLSX = 10 [
+      (gaos.parsing.enum_value_name) =
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ];
+    TYPE_XLS = 11 [(gaos.parsing.enum_value_name) = "application/vnd.ms-excel"];
+    TYPE_ODS = 12 [(gaos.parsing.enum_value_name) =
+                       "application/vnd.oasis.opendocument.spreadsheet"];
   }
   .genai.DocumentContent.MimeType mime_type = 1
       [json_name = "legacy_mime_type_enum"];
