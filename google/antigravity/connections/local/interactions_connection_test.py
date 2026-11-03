@@ -137,7 +137,7 @@ class InteractionsConnectionUnitTest(unittest.IsolatedAsyncioTestCase):
         api_key="test-key",
     )
     strategy = cfg.create_strategy(tool_runner=None, hook_runner=None)
-    self.mock_process.stderr.read.return_value = b"fatal handshake error"
+    self.mock_process.stderr.read.return_value = b"fatal handshake error \xff"
     self.ws.close = mock.AsyncMock(wraps=self.ws.close)
     await self.ws.queue.put(
         json.dumps({"event_type": "error", "error": {"message": "bad config"}})
@@ -152,6 +152,9 @@ class InteractionsConnectionUnitTest(unittest.IsolatedAsyncioTestCase):
       with self.assertRaisesRegex(RuntimeError, "fatal handshake error"):
         await strategy.__aenter__()
     self.ws.close.assert_awaited_once()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
 
@@ -172,6 +175,9 @@ class InteractionsConnectionUnitTest(unittest.IsolatedAsyncioTestCase):
       with self.assertRaises(asyncio.CancelledError):
         await strategy.__aenter__()
     self.ws.close.assert_awaited_once()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
 
