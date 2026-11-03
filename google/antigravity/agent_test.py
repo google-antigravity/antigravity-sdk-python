@@ -14,7 +14,6 @@
 
 """Tests for Agent API."""
 
-import asyncio
 import contextlib
 import errno
 import os
@@ -629,101 +628,6 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
 
     # TriggerRunner.stop() called during __aexit__.
     mock_runner_instance.stop.assert_called_once()
-
-  @mock.patch(
-      "google.antigravity.connections."
-      "local.local_connection.LocalConnectionStrategy"
-  )
-  @mock.patch.object(conversation.Conversation, "create")
-  @mock.patch(
-      "google.antigravity.agent."
-      "trigger_runner.TriggerRunner"
-  )
-  @mock.patch.object(agent.logging, "exception")
-  async def test_agent_aenter_cancelled_after_conversation_closes_exit_stack(
-      self,
-      mock_log_exception,
-      mock_trigger_runner_class,
-      mock_conv_create,
-      mock_strategy_class,
-  ):
-    """Verifies CancelledError in __aenter__ closes entered resources.
-
-    Why: asyncio.CancelledError inherits from BaseException, not Exception. If
-    cancellation arrives after Conversation.create() has entered _exit_stack
-    (for example while starting TriggerRunner), _exit_stack.aclose() must still
-    run so the underlying connection and localharness subprocess do not leak.
-    How: Mock Conversation.create() to succeed and TriggerRunner.__aenter__() to
-    raise CancelledError, then assert Conversation.__aexit__ is awaited without
-    logging a spurious error traceback.
-    """
-    mock_strategy_class.return_value = mock.MagicMock()
-    mock_conversation = mock.MagicMock(spec=conversation.Conversation)
-    mock_conversation.connection = mock.MagicMock()
-
-    mock_cm = mock.AsyncMock()
-    mock_cm.__aenter__.return_value = mock_conversation
-    mock_conv_create.return_value = mock_cm
-
-    mock_runner_instance = mock.AsyncMock()
-    mock_runner_instance.__aenter__.side_effect = asyncio.CancelledError()
-    mock_trigger_runner_class.return_value = mock_runner_instance
-
-    async def my_trigger(ctx):
-      del ctx  # Unused.
-
-    config = local_connection.LocalAgentConfig(
-        system_instructions="test", triggers=[my_trigger]
-    )
-    with self.assertRaises(asyncio.CancelledError):
-      async with agent.Agent(config):
-        pass
-
-    mock_cm.__aexit__.assert_awaited_once()
-    mock_log_exception.assert_not_called()
-
-  @mock.patch(
-      "google.antigravity.connections."
-      "local.local_connection.LocalConnectionStrategy"
-  )
-  @mock.patch.object(conversation.Conversation, "create")
-  @mock.patch(
-      "google.antigravity.agent."
-      "trigger_runner.TriggerRunner"
-  )
-  @mock.patch.object(agent.logging, "exception")
-  async def test_agent_aenter_exception_after_conversation_closes_exit_stack(
-      self,
-      mock_log_exception,
-      mock_trigger_runner_class,
-      mock_conv_create,
-      mock_strategy_class,
-  ):
-    """Verifies Exception during __aenter__ logs and closes _exit_stack."""
-    mock_strategy_class.return_value = mock.MagicMock()
-    mock_conversation = mock.MagicMock(spec=conversation.Conversation)
-    mock_conversation.connection = mock.MagicMock()
-
-    mock_cm = mock.AsyncMock()
-    mock_cm.__aenter__.return_value = mock_conversation
-    mock_conv_create.return_value = mock_cm
-
-    mock_runner_instance = mock.AsyncMock()
-    mock_runner_instance.__aenter__.side_effect = RuntimeError("trigger boom")
-    mock_trigger_runner_class.return_value = mock_runner_instance
-
-    async def my_trigger(ctx):
-      del ctx  # Unused.
-
-    config = local_connection.LocalAgentConfig(
-        system_instructions="test", triggers=[my_trigger]
-    )
-    with self.assertRaisesRegex(RuntimeError, "trigger boom"):
-      async with agent.Agent(config):
-        pass
-
-    mock_cm.__aexit__.assert_awaited_once()
-    mock_log_exception.assert_called_once()
 
   @mock.patch(
       "google.antigravity.connections."

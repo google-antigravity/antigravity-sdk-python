@@ -250,9 +250,6 @@ class Agent:
       logging.exception("Failed to start Agent session, cleaning up...")
       await self._exit_stack.aclose()
       raise
-    except BaseException:
-      await self._exit_stack.aclose()
-      raise
 
   async def __aexit__(self, exc_type, exc_val, exc_tb):
     """Stops the agent session.
