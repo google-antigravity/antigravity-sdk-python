@@ -91,6 +91,7 @@ message ToolCallStep {
     .genai.GenerateImageCallStep generate_image_call = 17;
     .genai.ProcessingCallStep processing_call = 18;
     .genai.SkillLookupCallStep skill_lookup_call = 19;
+    .genai.ExperimentalToolCallStep experimental_tool_call = 25;
     .genai.ManageTaskCallStep manage_task_call = 26;
   }
 }
@@ -116,6 +117,7 @@ message ToolResultStep {
     .genai.GenerateImageResultStep generate_image_result = 16;
     .genai.ProcessingResultStep processing_result = 17;
     .genai.SkillLookupResultStep skill_lookup_result = 19;
+    .genai.ExperimentalToolResultStep experimental_tool_result = 25;
     .genai.ManageTaskResultStep manage_task_result = 26;
   }
 }
@@ -373,6 +375,14 @@ message SkillLookupCallStep {
 message SkillLookupResultStep {
   repeated string resolved_skill_names = 1;
   string error_message = 2;
+}
+message ExperimentalToolCallStep {
+  string name = 1;
+  bytes internal_data = 2;
+}
+message ExperimentalToolResultStep {
+  string name = 1;
+  bytes internal_data = 2;
 }
 message ManageTaskCallStep {
   enum Action {
