@@ -183,8 +183,9 @@ class InteractionsConnectionStrategy(local_connection.LocalConnectionStrategy):
           )
         root_interaction_id = init_resp.get("interaction_id") or ""
     except Exception as e:
-      await self._cleanup_failed_handshake(process, ws)
-      stderr_output = process.stderr.read().decode("utf-8")
+      stderr_output = await self._cleanup_failed_handshake(
+          process, ws, read_stderr=True
+      )
       raise RuntimeError(
           f"Failed to initialize interaction at {ws_url}. Stderr:"
           f" {stderr_output}"

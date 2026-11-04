@@ -16,6 +16,7 @@
 
 import asyncio
 import base64
+import contextlib
 import datetime
 import enum
 import importlib
@@ -26,6 +27,7 @@ import pathlib
 import struct
 import subprocess
 import tempfile
+import time
 import typing
 from typing import Any, Literal, Union
 import unittest
@@ -4924,6 +4926,31 @@ class LocalConnectionStderrReaderTest(unittest.IsolatedAsyncioTestCase):
     harness.conn._start_stderr_reader(stream)
     harness.conn._stderr_thread.join(timeout=2)
     self.assertFalse(harness.conn._stderr_thread.is_alive())
+    self.assertTrue(stream.closed)
+
+  async def test_stderr_reader_closes_stream_when_iteration_raises(self):
+    """Verifies reader thread closes stderr_stream on ValueError/OSError."""
+
+    class _FailingStream:
+
+      def __init__(self):
+        self.closed = False
+
+      def __iter__(self):
+        raise ValueError("I/O operation on closed file")
+
+      def close(self):
+        self.closed = True
+
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    failing_stream = _FailingStream()
+    harness.conn._start_stderr_reader(failing_stream)
+    harness.conn._stderr_thread.join(timeout=2)
+    self.assertFalse(harness.conn._stderr_thread.is_alive())
+    self.assertTrue(failing_stream.closed)
 
   async def test_stderr_reader_thread_is_daemon(self):
     """Verifies the stderr reader thread is a daemon thread.
@@ -5087,14 +5114,14 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
       await harness.disconnect_sdk()
 
   async def test_spawn_harness_early_stdout_eof_kills_and_reaps_process(self):
-    """Verifies localharness process is killed and reaped if stdout returns EOF."""
+    """Verifies process and pipes are cleaned up if stdout returns EOF."""
     test_utils.patch_default_binary_path(self)
     strategy = local_connection.LocalConnectionStrategy()
     self.mock_process.stdin = mock.MagicMock()
     self.mock_process.stdout = mock.MagicMock()
     self.mock_process.stdout.read.return_value = b""
     self.mock_process.stderr = mock.MagicMock()
-    self.mock_process.stderr.read.return_value = b"early crash"
+    self.mock_process.stderr.read.return_value = b"early crash \xff"
     with mock.patch.object(
         subprocess, "Popen", return_value=self.mock_process
     ):
@@ -5102,11 +5129,87 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
           RuntimeError, "Failed to read length from stdout"
       ):
         await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_spawn_harness_ws_retry_exhaustion_cleans_up_once(self):
+    """Verifies WS retry exhaustion kills process once and closes pipes."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    serialized = localharness_pb2.OutputConfig(
+        port=8080, api_key="fake-key"
+    ).SerializeToString()
+    length_bytes = struct.pack("<I", len(serialized))
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.side_effect = [length_bytes, serialized]
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.stderr.read.return_value = b"bind error \xfe"
+    with (
+        mock.patch.object(subprocess, "Popen", return_value=self.mock_process),
+        mock.patch.object(
+            local_connection, "_MAX_WEBSOCKET_CONNECT_RETRIES", 1
+        ),
+        mock.patch(
+            "websockets.connect",
+            new=mock.AsyncMock(side_effect=OSError("connection refused")),
+        ),
+        mock.patch("asyncio.sleep", new=mock.AsyncMock()),
+    ):
+      with self.assertRaisesRegex(
+          RuntimeError, "Failed to connect to WebSocket.*bind error"
+      ):
+        await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_spawn_harness_unexpected_runtime_error_still_reaps_process(
+      self,
+  ):
+    """Verifies Exception in _spawn_harness_and_connect_ws reaps process.
+
+    Why: _spawn_harness_and_connect_ws splits Exception vs BaseException so
+    any handshake error (including unexpected RuntimeErrors or decode errors)
+    kills/reaps the process and surfaces stderr diagnostics.
+    How: Make _connect_websocket raise a plain RuntimeError and assert the
+    process is killed, reaped, and all stdio pipes are closed exactly once.
+    """
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    serialized = localharness_pb2.OutputConfig(
+        port=8080, api_key="fake-key"
+    ).SerializeToString()
+    length_bytes = struct.pack("<I", len(serialized))
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.side_effect = [length_bytes, serialized]
+    self.mock_process.stderr = mock.MagicMock()
+    with (
+        mock.patch.object(subprocess, "Popen", return_value=self.mock_process),
+        mock.patch.object(
+            strategy,
+            "_connect_websocket",
+            new=mock.AsyncMock(
+                side_effect=RuntimeError("Event loop is closed")
+            ),
+        ),
+    ):
+      with self.assertRaisesRegex(RuntimeError, "Event loop is closed"):
+        await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
 
   async def test_spawn_harness_cancelled_error_kills_and_reaps_process(self):
-    """Verifies localharness process is killed and reaped on CancelledError."""
+    """Verifies process and pipes are cleaned up on CancelledError."""
     test_utils.patch_default_binary_path(self)
     strategy = local_connection.LocalConnectionStrategy()
     serialized = localharness_pb2.OutputConfig(
@@ -5127,14 +5230,145 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
     ):
       with self.assertRaises(asyncio.CancelledError):
         await strategy._spawn_harness_and_connect_ws()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
 
+  async def test_spawn_harness_passes_process_to_three_arg_connect_websocket(
+      self,
+  ):
+    """Verifies _connect_websocket keeps the 3-arg (port, api_key, process) contract.
+
+    Why: Downstream subclasses and wrappers override or monkeypatch
+    _connect_websocket(self, port, api_key, process) to track spawned harness
+    processes or customize WebSocket connection options.
+    How: Define typed subclass overrides (both required and optional process)
+    and a 3-arg wrapper forwarding to the base method, then run
+    _spawn_harness_and_connect_ws and verify both receive the spawned process.
+    """
+    test_utils.patch_default_binary_path(self)
+    recorded_calls: list[tuple[int, str, subprocess.Popen[bytes]]] = []
+
+    class SubclassStrategy(local_connection.LocalConnectionStrategy):
+
+      async def _connect_websocket(
+          self, port: int, api_key: str, process: subprocess.Popen[bytes]
+      ) -> tuple[Any, str]:
+        recorded_calls.append((port, api_key, process))
+        return await super()._connect_websocket(port, api_key, process)
+
+    class OptionalProcessSubclassStrategy(
+        local_connection.LocalConnectionStrategy
+    ):
+
+      async def _connect_websocket(
+          self,
+          port: int,
+          api_key: str,
+          process: subprocess.Popen[bytes] | None = None,
+      ) -> tuple[Any, str]:
+        assert process is not None
+        return await super()._connect_websocket(port, api_key, process)
+
+    optional_strategy = OptionalProcessSubclassStrategy()
+    fake_ws = object()
+    with mock.patch(
+        "websockets.connect",
+        new=mock.AsyncMock(return_value=fake_ws),
+    ):
+      ws_opt, ws_opt_url = await optional_strategy._connect_websocket(
+          43210, "sub-key", self.mock_process
+      )
+    self.assertIs(ws_opt, fake_ws)
+    self.assertEqual(ws_opt_url, "ws://localhost:43210/")
+
+    strategy = SubclassStrategy()
+    orig_connect = strategy._connect_websocket
+    wrapped_processes: list[subprocess.Popen[bytes]] = []
+
+    async def tracked_connect(
+        port: int, api_key: str, process: subprocess.Popen[bytes]
+    ) -> tuple[Any, str]:
+      wrapped_processes.append(process)
+      return await orig_connect(port, api_key, process)
+
+    strategy._connect_websocket = tracked_connect
+
+    serialized = localharness_pb2.OutputConfig(
+        port=43210, api_key="sub-key"
+    ).SerializeToString()
+    length_bytes = struct.pack("<I", len(serialized))
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.side_effect = [length_bytes, serialized]
+    self.mock_process.stderr = mock.MagicMock()
+    with (
+        mock.patch.object(subprocess, "Popen", return_value=self.mock_process),
+        mock.patch(
+            "websockets.connect",
+            new=mock.AsyncMock(return_value=fake_ws),
+        ),
+    ):
+      proc, ws, ws_url = await strategy._spawn_harness_and_connect_ws()
+
+    self.assertIs(proc, self.mock_process)
+    self.assertIs(ws, fake_ws)
+    self.assertEqual(ws_url, "ws://localhost:43210/")
+    self.assertEqual(recorded_calls, [(43210, "sub-key", self.mock_process)])
+    self.assertEqual(wrapped_processes, [self.mock_process])
+
+  async def test_spawn_harness_preserves_preformatted_subclass_stderr_error(
+      self,
+  ):
+    """Verifies subclass _connect_websocket errors with Stderr are not duplicated."""
+    test_utils.patch_default_binary_path(self)
+    root_cause = ConnectionRefusedError("refused")
+
+    class FailingSubclassStrategy(local_connection.LocalConnectionStrategy):
+
+      async def _connect_websocket(
+          self, port: int, api_key: str, process: subprocess.Popen[bytes]
+      ) -> tuple[Any, str]:
+        del port, api_key, process
+        raise RuntimeError(
+            "Failed to connect to WebSocket. Stderr: close 1006"
+        ) from root_cause
+
+    strategy = FailingSubclassStrategy()
+    serialized = localharness_pb2.OutputConfig(
+        port=8080, api_key="fake-key"
+    ).SerializeToString()
+    length_bytes = struct.pack("<I", len(serialized))
+    self.mock_process.stdin = mock.MagicMock()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stdout.read.side_effect = [length_bytes, serialized]
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.stderr.read.return_value = b""
+    with mock.patch.object(subprocess, "Popen", return_value=self.mock_process):
+      with self.assertRaises(RuntimeError) as ctx:
+        await strategy._spawn_harness_and_connect_ws()
+
+    self.assertEqual(
+        str(ctx.exception),
+        "Failed to connect to WebSocket. Stderr: close 1006",
+    )
+    self.assertIs(ctx.exception.__cause__, root_cause)
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+
   async def test_aenter_handshake_exception_kills_process_and_closes_ws(self):
-    """Verifies Exception during __aenter__ cleans up WS and process."""
+    """Verifies Exception during __aenter__ cleans up WS, pipes, and process."""
     test_utils.patch_default_binary_path(self)
     strategy = local_connection.LocalConnectionStrategy()
-    self.mock_process.stderr.read.return_value = b"handshake failure stderr"
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.stderr.read.return_value = (
+        b"handshake failure stderr \xff"
+    )
     ws = test_utils.TestWebSocket()
     ws.close = mock.AsyncMock(side_effect=OSError("socket already broken"))
     ws.recv = mock.AsyncMock(side_effect=ConnectionError("ws dropped"))
@@ -5148,14 +5382,20 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
       with self.assertRaisesRegex(RuntimeError, "handshake failure stderr"):
         await strategy.__aenter__()
     ws.close.assert_awaited_once()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
 
   async def test_aenter_cancelled_error_kills_process_and_closes_ws(self):
-    """Verifies BaseException/CancelledError during __aenter__ cleans up WS and process."""
+    """Verifies __aenter__ cancellation cleans up WS, pipes, and process."""
     test_utils.patch_default_binary_path(self)
     strategy = local_connection.LocalConnectionStrategy()
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
     ws = test_utils.TestWebSocket()
+    ws.transport = mock.create_autospec(asyncio.Transport, instance=True)
     ws.close = mock.AsyncMock(wraps=ws.close)
     ws.recv = mock.AsyncMock(side_effect=asyncio.CancelledError())
     with mock.patch.object(
@@ -5168,8 +5408,342 @@ class LocalConnectionDisconnectTest(unittest.IsolatedAsyncioTestCase):
       with self.assertRaises(asyncio.CancelledError):
         await strategy.__aenter__()
     ws.close.assert_awaited_once()
+    ws.transport.close.assert_called_once()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
     self.mock_process.kill.assert_called_once()
     self.mock_process.wait.assert_called_once_with(timeout=1)
+
+  async def test_strategy_aexit_clears_connection_when_disconnect_raises(self):
+    """Verifies __aexit__ clears _connection even when disconnect() raises."""
+    test_utils.patch_default_binary_path(self)
+    strategy = local_connection.LocalConnectionStrategy()
+    mock_conn = mock.MagicMock()
+    mock_conn.disconnect = mock.AsyncMock(side_effect=asyncio.CancelledError())
+    strategy._connection = mock_conn
+    with self.assertRaises(asyncio.CancelledError):
+      await strategy.__aexit__(None, None, None)
+    self.assertIsNone(strategy._connection)
+
+  @mock.patch.object(local_connection, "_PROCESS_WAIT_TIMEOUT_SECONDS", 5)
+  async def test_disconnect_handles_ws_oserror_and_triple_wait_timeout(self):
+    """Verifies disconnect suppresses WS OSError and post-SIGKILL timeout."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.poll.return_value = None
+    self.mock_process.returncode = None
+    self.mock_process.wait.side_effect = [
+        subprocess.TimeoutExpired("cmd", 5),
+        subprocess.TimeoutExpired("cmd", 1),
+        subprocess.TimeoutExpired("cmd", 1),
+    ]
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    harness.ws.close = mock.AsyncMock(side_effect=OSError("broken pipe"))
+    await harness.disconnect_sdk()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.terminate.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+
+  async def test_disconnect_cancelled_error_kills_and_reaps_process(self):
+    """Verifies CancelledError in disconnect closes transport and reaps."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    harness.ws.transport = mock.create_autospec(
+        asyncio.Transport, instance=True
+    )
+    harness.conn._processor.cancel_background_tasks = mock.AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+    with self.assertRaises(asyncio.CancelledError):
+      await harness.conn.disconnect()
+    harness.ws.transport.close.assert_called_once()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+    with contextlib.suppress(asyncio.CancelledError):
+      await harness.conn._reader_task
+
+  async def test_disconnect_cancelled_kills_before_joining_real_stderr_reader(
+      self,
+  ):
+    """Verifies cancelled disconnect kills process before joining stderr."""
+    r_fd, w_fd = os.pipe()
+    r_stream = os.fdopen(r_fd, "rb")
+    w_closed = False
+    harness = None
+
+    def close_write_end_on_kill():
+      nonlocal w_closed
+      if not w_closed:
+        os.close(w_fd)
+        w_closed = True
+
+    def cleanup_write_end():
+      if not w_closed:
+        os.close(w_fd)
+      if harness is not None and harness.conn._stderr_thread is not None:
+        harness.conn._stderr_thread.join(timeout=1.0)
+
+    self.addCleanup(r_stream.close)
+    self.addCleanup(cleanup_write_end)
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = r_stream
+    self.mock_process.kill.side_effect = close_write_end_on_kill
+
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    harness.conn._start_stderr_reader(r_stream)
+    self.assertTrue(harness.conn._stderr_thread.is_alive())
+    harness.conn._processor.cancel_background_tasks = mock.AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+    with self.assertRaises(asyncio.CancelledError):
+      await harness.conn.disconnect()
+
+    self.mock_process.kill.assert_called_once()
+    self.assertFalse(harness.conn._stderr_thread.is_alive())
+    self.assertTrue(r_stream.closed)
+    with contextlib.suppress(asyncio.CancelledError):
+      await harness.conn._reader_task
+
+  async def test_disconnect_session_end_hook_error_cleans_up_then_reraises(
+      self,
+  ):
+    """Verifies session-end hook errors clean up process before raising."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.poll.return_value = 0
+
+    class SessionEndHook(hooks_base.OnSessionEndHook):
+
+      async def run(self, context: hooks_base.HookContext, data: None):
+        del context, data  # Unused.
+        return None
+
+    hr = hook_runner.HookRunner()
+    hr.register_hook(SessionEndHook())
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        hook_runner=hr,
+    )
+    harness.conn._send_session_end_request = mock.AsyncMock(
+        side_effect=RuntimeError("ws closed before session end")
+    )
+    with self.assertRaisesRegex(RuntimeError, "ws closed before session end"):
+      await harness.conn.disconnect()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.wait.assert_called_once()
+
+  async def test_disconnect_nonzero_exit_overrides_session_end_error(
+      self,
+  ):
+    """Verifies non-zero exit error overrides session-end hook error."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    self.mock_process.poll.return_value = 2
+
+    class SessionEndHook(hooks_base.OnSessionEndHook):
+
+      async def run(self, context: hooks_base.HookContext, data: None):
+        del context, data  # Unused.
+        return None
+
+    hr = hook_runner.HookRunner()
+    hr.register_hook(SessionEndHook())
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        hook_runner=hr,
+    )
+    harness.conn._send_session_end_request = mock.AsyncMock(
+        side_effect=RuntimeError("ws closed before session end")
+    )
+    with self.assertRaisesRegex(
+        types.AntigravityExecutionError, "Harness process exited with code 2"
+    ):
+      await harness.conn.disconnect()
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+
+  async def test_disconnect_cancelled_during_session_end_hook_reaps_process(
+      self,
+  ):
+    """Verifies cancellation in session-end hook cancels tasks and reaps."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+
+    class SessionEndHook(hooks_base.OnSessionEndHook):
+
+      async def run(self, context: hooks_base.HookContext, data: None):
+        del context, data  # Unused.
+        return None
+
+    hr = hook_runner.HookRunner()
+    hr.register_hook(SessionEndHook())
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        hook_runner=hr,
+    )
+    never_done = asyncio.Event()
+    harness.conn._processor._run_in_background(never_done.wait())
+    bg_task = next(iter(harness.conn._processor._background_tasks))
+
+    disconnect_task = asyncio.create_task(harness.conn.disconnect())
+    await harness.wait_for_response()
+    disconnect_task.cancel()
+    with self.assertRaises(asyncio.CancelledError):
+      await disconnect_task
+    with contextlib.suppress(asyncio.CancelledError):
+      await bg_task
+    self.assertTrue(bg_task.cancelled())
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_called_once()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+    with contextlib.suppress(asyncio.CancelledError):
+      await harness.conn._reader_task
+
+  async def test_disconnect_skips_stderr_close_while_reader_thread_alive(self):
+    """Verifies disconnect skips stderr close while reader thread is alive.
+
+    Why: Closing a BufferedReader blocks while another thread is inside
+    readline(). If a grandchild process still holds the stderr write end, the
+    reader never reaches EOF and closing stderr would hang disconnect().
+    How: Install a reader thread whose is_alive() stays True, then assert
+    stdout is closed but stderr.close() is never called.
+    """
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    stuck_reader = mock.MagicMock()
+    stuck_reader.is_alive.return_value = True
+    harness.conn._stderr_thread = stuck_reader
+    await harness.disconnect_sdk()
+    stuck_reader.join.assert_called_once_with(timeout=1.0)
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_not_called()
+
+  async def test_disconnect_cancelled_skips_stderr_close_while_reader_alive(
+      self,
+  ):
+    """Verifies cancelled disconnect leaves stderr to a live reader thread."""
+    self.mock_process.stdout = mock.MagicMock()
+    self.mock_process.stderr = mock.MagicMock()
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+    )
+    stuck_reader = mock.MagicMock()
+    stuck_reader.is_alive.return_value = True
+    harness.conn._stderr_thread = stuck_reader
+    harness.conn._processor.cancel_background_tasks = mock.AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+    with self.assertRaises(asyncio.CancelledError):
+      await harness.conn.disconnect()
+    stuck_reader.join.assert_called_once_with(timeout=0.2)
+    self.mock_process.stdin.close.assert_called_once()
+    self.mock_process.stdout.close.assert_called_once()
+    self.mock_process.stderr.close.assert_not_called()
+    self.mock_process.kill.assert_called_once()
+    self.mock_process.wait.assert_called_once_with(timeout=1)
+    with contextlib.suppress(asyncio.CancelledError):
+      await harness.conn._reader_task
+
+  def test_pipe_and_reap_helpers_edge_cases(self):
+    """Verifies pipe, transport, stderr, and reap helper edge cases."""
+    local_connection._close_pipe(None)
+    broken_pipe = mock.MagicMock()
+    broken_pipe.close.side_effect = OSError("already closed")
+    local_connection._close_pipe(broken_pipe)
+    broken_pipe.close.assert_called_once()
+
+    local_connection._close_ws_transport(None)
+    ws_with_broken_transport = mock.MagicMock()
+    ws_with_broken_transport.transport = mock.create_autospec(
+        asyncio.Transport, instance=True
+    )
+    ws_with_broken_transport.transport.close.side_effect = RuntimeError(
+        "Event loop is closed"
+    )
+    local_connection._close_ws_transport(ws_with_broken_transport)
+    ws_with_broken_transport.transport.close.assert_called_once()
+
+    proc_no_stderr = mock.MagicMock()
+    proc_no_stderr.stdin = None
+    proc_no_stderr.stdout = None
+    proc_no_stderr.stderr = None
+    proc_no_stderr.wait.side_effect = subprocess.TimeoutExpired("cmd", 1)
+    self.assertEqual(
+        local_connection._read_and_close_stderr(proc_no_stderr), ""
+    )
+    local_connection._kill_and_reap_process(proc_no_stderr)
+    proc_no_stderr.kill.assert_called_once()
+    proc_no_stderr.wait.assert_called_once_with(timeout=1)
+
+    proc_broken_stderr = mock.MagicMock()
+    proc_broken_stderr.stderr = mock.MagicMock()
+    proc_broken_stderr.stderr.read.side_effect = ValueError("stream closed")
+    self.assertEqual(
+        local_connection._read_and_close_stderr(proc_broken_stderr), ""
+    )
+    proc_broken_stderr.stderr.close.assert_called_once()
+
+  def test_read_and_close_stderr_returns_promptly_when_grandchild_holds_pipe(
+      self,
+  ):
+    """Verifies _read_and_close_stderr bounds reads when grandchild holds fd."""
+    r_fd, w_fd = os.pipe()
+    r_stream = os.fdopen(r_fd, "rb")
+    w_closed = False
+
+    def cleanup_write_end():
+      nonlocal w_closed
+      if not w_closed:
+        os.close(w_fd)
+        w_closed = True
+
+    self.addCleanup(r_stream.close)
+    self.addCleanup(cleanup_write_end)
+
+    os.write(w_fd, b"handshake crash\n")
+    proc = mock.MagicMock()
+    proc.stderr = r_stream
+
+    t0 = time.monotonic()
+    output = local_connection._read_and_close_stderr(proc, timeout=0.05)
+    elapsed = time.monotonic() - t0
+
+    self.assertEqual(output, "handshake crash\n")
+    self.assertLess(elapsed, 1.0)
+    cleanup_write_end()
+    deadline = time.monotonic() + 2.0
+    while not r_stream.closed and time.monotonic() < deadline:
+      time.sleep(0.01)
+    self.assertTrue(r_stream.closed)
 
 
 class LocalConnectionUnexpectedCloseTest(unittest.IsolatedAsyncioTestCase):
