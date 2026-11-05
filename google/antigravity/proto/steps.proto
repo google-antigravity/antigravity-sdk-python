@@ -93,6 +93,7 @@ message ToolCallStep {
     .genai.SkillLookupCallStep skill_lookup_call = 19;
     .genai.ExperimentalToolCallStep experimental_tool_call = 25;
     .genai.ManageTaskCallStep manage_task_call = 26;
+    .genai.FinishCallStep finish_call = 27;
   }
 }
 message ToolResultStep {
@@ -119,6 +120,7 @@ message ToolResultStep {
     .genai.SkillLookupResultStep skill_lookup_result = 19;
     .genai.ExperimentalToolResultStep experimental_tool_result = 25;
     .genai.ManageTaskResultStep manage_task_result = 26;
+    .genai.FinishResultStep finish_result = 27;
   }
 }
 message FunctionCallStep {
@@ -410,3 +412,7 @@ message ManageTaskResultStep {
   }
   repeated .genai.ManageTaskResultStep.Task tasks = 1;
 }
+message FinishCallStep {
+  .genai.Struct arguments = 1;
+}
+message FinishResultStep {}
