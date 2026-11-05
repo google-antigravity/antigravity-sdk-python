@@ -181,7 +181,14 @@ message FunctionResultStep {
   ];
 }
 message CodeExecutionResultStep {
-  string result = 1;
+  oneof output {
+    option (gaos.parsing.is_union) = true;
+    option (gaos.parsing.is_required) = true;
+    option (gaos.parsing.union_name) = "result";
+
+    string result = 1;
+    .genai.ContentList content = 5;
+  }
   bool is_error = 2;
   int32 exit_code = 3;
 }
