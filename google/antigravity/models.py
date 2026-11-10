@@ -45,7 +45,7 @@ class ThinkingLevel(str, enum.Enum):
   """Thinking level for Gemini models that support extended thinking.
 
   Controls the amount of reasoning the model performs before responding.
-  See https://ai.google.dev/gemini-api/docs/thinking#thinking-levels for
+  See https://aistudio.google.com/docs/thinking#thinking-levels for
   details.
 
   Attributes:
@@ -67,7 +67,7 @@ class ServiceTier(str, enum.Enum):
   """Service tier for Gemini model inference.
 
   Controls the compute queue priority and rate limit fallback behavior. See:
-  https://ai.google.dev/gemini-api/docs/priority-inference
+  https://aistudio.google.com/docs/priority-inference
 
   Attributes:
     STANDARD: Standard processing tier.
