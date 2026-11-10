@@ -7,6 +7,58 @@ All notable changes to the Google Antigravity Python SDK will be documented in t
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.24] - 2026-11-10
+
+Google Antigravity Python SDK v0.1.24 adds multimodal input and automatic vision backend detection to LiteRTAgentConfig, expands tool execution to support returning SDK media primitives and Pydantic models directly as multimodal content, and hardens workspace security by collapsing path traversal segments in canonical tool paths. This release also introduces partial function tool registration, emits LiteRT thought channels as reasoning tokens in streaming and synchronous responses, aligns OpenAI connection error handling with retry support, and fixes subprocess and pipe leaks during agent session cancellation.
+
+### 🌟 Key Highlights
+- **On-Device Vision Support (`LiteRTAgentConfig`)**: Automatically detect vision-capable `.litertlm` checkpoints (such as Gemma 4 26B) via `litert_lm.ModelInfo` and pass local images directly to `agent.chat()` for offline and hybrid visual workflows (requires `litert-lm >= 0.19.1`).
+  ```python
+  from google.antigravity import Agent, LiteRTAgentConfig, from_file
+
+  config = LiteRTAgentConfig(model_path="~/.litert-lm/models/gemma4-26b/model.litertlm")
+  async with Agent(config) as agent:
+      response = await agent.chat(["Check this UI for layout bugs:", from_file("ui.png")])
+  ```
+
+- **Prefix Caching (`LiteRTAgentConfig`)**: Reuses the KV cache across sequential agent turns to eliminate redundant prompt prefill on static system instructions, tool schemas, and prior conversation history for faster multi-step interactions.
+
+- **Multimodal Tool Return Values & Pydantic Serialization (`struct_converter`)**: Return SDK media primitives (`Image`, `Audio`, `Video`, `Document`) and structured Pydantic models from custom tools and functions, serialized directly as multimodal content with clean inline summaries.
+  ```python
+  from google.antigravity import Image, LocalAgentConfig
+
+  def capture_screenshot() -> Image:
+      return Image(data=b"\x89PNG\r\n\x1a\n", mime_type="image/png")
+
+  config = LocalAgentConfig(tools=[capture_screenshot])
+  ```
+
+- **Path Traversal Normalization for Canonical Tool Paths (`ToolCall.canonical_path`)**: Automatically resolves and collapses relative `.` and `..` segments and percent-encoded traversals across local and remote URIs in `ToolCall.canonical_path`. This prevents path traversal sequences from bypassing workspace boundary checks in lifecycle hooks and execution policies.
+  ```python
+  from google.antigravity import hooks, types
+
+  @hooks.pre_tool_call_decide
+  def guard_workspace(call: types.ToolCall) -> types.HookResult:
+      if call.canonical_path and not call.canonical_path.startswith("/workspace"):
+          return types.HookResult(allow=False, message="Access outside workspace denied")
+      return types.HookResult(allow=True)
+  ```
+
+---
+
+### 📋 Detailed Changes
+
+- **Features & Enhancements**
+  - **LiteRT Vision Modality**: Added automatic vision capability and hardware backend detection (`"gpu"` / `"cpu"`) via `litert_lm.ModelInfo` in `LiteRTAgentConfig` (with optional `vision_backend` override) and OpenAI-to-LiteRT multimodal image translation (`from_file`, `Image`).
+  - **LiteRT Multi-Turn Prefix Caching**: Cached active `LiteRT-LM` conversations across sequential loopback turns when message prefixes and tool schemas match, prefilling only newly added prompts and tool responses.
+  - **Tool Runner**: Preserved underlying function names, docstrings, and parameter annotations when registering `functools.partial` callables and callable class instances as tools instead of defaulting to generic names like `partial`.
+
+- **Bug Fixes**
+  - **Agent Session Teardown**: Cancelling session startup or disconnect leaked subprocesses, file descriptors, and WebSocket connections; resolved by catching `BaseException` in `Agent.__aenter__` to await exit stack cleanup and ensuring subprocesses, stdio pipes, and background tasks terminate cleanly (GitHub issue #279).
+  - **LiteRT Thought Channel Streaming**: Model thought tokens were omitted from LiteRT responses; resolved by emitting the thought channel as `reasoning` and `reasoning_content` fields in streaming SSE deltas and synchronous payloads (GitHub issue #267).
+  - **OpenAI Error Handling & Metrics**: HTTP 4xx/5xx responses in `LocalOpenAIConnection` raised generic execution errors and transient 429/5xx errors were not retried; resolved by raising `AntigravityConnectionError`, enabling automatic retries with `Retry-After` delay header parsing, and populating token usage and latency metrics on SSE chunks.
+  - **Conversation Compaction Tracking**: Active in-progress compaction updates and subagent compaction steps were recorded in `Conversation.compaction_indices`; resolved by restricting compaction index tracking to completed root-level (`depth == 0`) compaction steps.
+
 ## [0.1.23] - 2026-10-26
 
 Google Antigravity Python SDK v0.1.23 expands dynamic workflow orchestration with programmatic tool execution, reusable multi-turn workflow agents, and structured workflow input arguments, while adding multi-turn conversation caching for local LiteRT models and custom section titles for replacement system instructions. This release also improves OpenAPI/JSON Schema metadata preservation, deterministic tool path normalization, media home-directory expansion, and workflow JSON-RPC stream resilience.
