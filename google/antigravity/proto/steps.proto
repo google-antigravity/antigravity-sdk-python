@@ -341,6 +341,9 @@ message ViewFileCallStep {
 }
 message ViewFileResultStep {
   string error_message = 1;
+  int32 start_line = 2;
+  int32 end_line = 3;
+  int32 total_lines = 4;
 }
 message EditFileCallStep {
   string file_path = 1;
