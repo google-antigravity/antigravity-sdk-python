@@ -15,6 +15,7 @@
 """Translates SDK Python configs and client inputs directly to GAOS Interactions JSON."""
 
 import base64
+import functools
 import inspect
 import json
 import pathlib
@@ -72,8 +73,8 @@ def callable_to_function_tool_dict(
     fn_dict["parameters"] = schema_utils.normalize_schema(fn.input_schema)
     return fn_dict
 
-  target_fn = fn
-  tool_name = getattr(fn, "__name__", None) or type(fn).__name__
+  target_fn: Callable[..., Any] = fn
+  tool_name = t_runner.get_tool_name(fn)
   # When a tool uses ToolContext dependency injection, ToolRunner strips the
   # injected parameter via get_public_callable() so the model's JSON schema only
   # exposes user-facing arguments. tool_runner=None is an optional fallback for
@@ -83,18 +84,23 @@ def callable_to_function_tool_dict(
 
   if not hasattr(target_fn, "__name__"):
     orig_fn = target_fn
+    base_fn: Any = orig_fn
+    while isinstance(base_fn, functools.partial):
+      base_fn = base_fn.func
+    routine_fn = (
+        base_fn if inspect.isroutine(base_fn) else getattr(base_fn, "__call__")
+    )
 
-    def wrapped(*args, **kwargs):
-      return orig_fn(*args, **kwargs)
+    @functools.wraps(routine_fn)
+    def wrapped() -> None:
+      """Introspection stub preserving __wrapped__ for deferred type hints."""
 
     wrapped.__name__ = tool_name
-    setattr(wrapped, "__doc__", getattr(orig_fn, "__doc__", None))
+    wrapped.__doc__ = t_runner.get_tool_doc(fn) or None
     try:
       setattr(wrapped, "__signature__", inspect.signature(orig_fn))
     except (ValueError, TypeError):
-      setattr(
-          wrapped, "__annotations__", getattr(orig_fn, "__annotations__", {})
-      )
+      setattr(wrapped, "__signature__", inspect.Signature())
     target_fn = wrapped
 
   decl = genai_types.FunctionDeclaration.from_callable_with_api_option(

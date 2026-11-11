@@ -15,6 +15,8 @@
 """Unit tests for interactions_config_converter."""
 
 import base64
+import dataclasses
+import functools
 from typing import Any, cast
 
 from absl.testing import absltest
@@ -26,10 +28,49 @@ from google.antigravity.hooks import hooks
 from google.antigravity.hooks import policy
 from google.antigravity.tools import tool_runner
 
+_DeferredSection = types.SystemInstructionSection
+
 
 def add_numbers(a: int, b: int) -> int:
   """Adds two numbers."""
   return a + b
+
+
+def _deferred_tag_message(prefix: "str", body: "str") -> "str":
+  """Tags a message with a fixed prefix."""
+  return f"{prefix}:{body}"
+
+
+class _DeferredFunctor:
+
+  def __call__(self, value: "int", section: "_DeferredSection") -> "str":
+    """Formats a section with an integer value."""
+    return f"{value}:{section.content}"
+
+
+class _ClassDocFunctor:
+  """Class-level functor documentation."""
+
+  def __call__(self, query: "str") -> "str":
+    return query
+
+
+@dataclasses.dataclass
+class _DataclassNoDocFunctor:
+  scale: int
+
+  def __call__(self, count: "int") -> "int":
+    return count * self.scale
+
+
+class _UninspectableCallable:
+
+  @property
+  def __signature__(self):
+    raise ValueError("no signature")
+
+  def __call__(self, *args: Any, **kwargs: Any) -> None:
+    del args, kwargs
 
 
 class _NoOpPreTurnHook(hooks.PreTurnHook):
@@ -306,6 +347,85 @@ class InteractionsConfigConverterTest(absltest.TestCase):
     self.assertEqual(
         explicit_fn_names,
         ["add_numbers", "unregistered_tool", "schema_fn"],
+    )
+
+  def test_callable_functor_and_partial_preserve_deferred_annotations_and_docs(
+      self,
+  ):
+    """Verifies schema extraction for functors and partials with deferred hints.
+
+    What: Converts callable class instances, functools.partial wrappers, and
+      uninspectable callables whose annotations are PEP 563 strings.
+    Why: Wrapping non-function callables without functools.wraps drops the
+      underlying __call__ or target function globals/annotations, causing
+      FunctionDeclaration schema parsing to raise KeyError on stringified hints
+      and lose __call__ or partial docstrings/names.
+    How: Asserts resolved parameter schemas, tool names, and descriptions across
+      functor, dataclass functor, functools.partial, and signature-less cases.
+    """
+    functor = _DeferredFunctor()
+    tr = tool_runner.ToolRunner([functor])
+    for runner in (None, tr):
+      fn_dict = interactions_config_converter.callable_to_function_tool_dict(
+          functor, tool_runner=runner
+      )
+      self.assertEqual(fn_dict["name"], "_DeferredFunctor")
+      self.assertEqual(
+          fn_dict["description"], "Formats a section with an integer value."
+      )
+      params = fn_dict["parameters"]
+      self.assertEqual(params["type"], "object")
+      self.assertEqual(params["properties"]["value"]["type"], "integer")
+      self.assertEqual(params["properties"]["section"]["type"], "object")
+      self.assertIn("content", params["properties"]["section"]["properties"])
+      self.assertEqual(params["required"], ["value", "section"])
+
+    class_doc_dict = (
+        interactions_config_converter.callable_to_function_tool_dict(
+            _ClassDocFunctor()
+        )
+    )
+    self.assertEqual(class_doc_dict["name"], "_ClassDocFunctor")
+    self.assertEqual(
+        class_doc_dict["description"], "Class-level functor documentation."
+    )
+    self.assertEqual(
+        class_doc_dict["parameters"]["properties"]["query"]["type"], "string"
+    )
+
+    dataclass_dict = (
+        interactions_config_converter.callable_to_function_tool_dict(
+            _DataclassNoDocFunctor(scale=3)
+        )
+    )
+    self.assertEqual(dataclass_dict["name"], "_DataclassNoDocFunctor")
+    self.assertNotIn("description", dataclass_dict)
+    self.assertEqual(
+        dataclass_dict["parameters"]["properties"]["count"]["type"], "integer"
+    )
+
+    partial_fn = functools.partial(_deferred_tag_message, "INFO")
+    partial_dict = interactions_config_converter.callable_to_function_tool_dict(
+        partial_fn
+    )
+    self.assertEqual(partial_dict["name"], "_deferred_tag_message")
+    self.assertEqual(
+        partial_dict["description"], "Tags a message with a fixed prefix."
+    )
+    self.assertEqual(set(partial_dict["parameters"]["properties"]), {"body"})
+    self.assertEqual(
+        partial_dict["parameters"]["properties"]["body"]["type"], "string"
+    )
+
+    uninspectable_dict = (
+        interactions_config_converter.callable_to_function_tool_dict(
+            _UninspectableCallable()
+        )
+    )
+    self.assertEqual(uninspectable_dict["name"], "_UninspectableCallable")
+    self.assertEqual(
+        uninspectable_dict["parameters"],
+        {"type": "object", "properties": {}},
     )
 
   def test_subagent_skills_config_and_model_validation(self):

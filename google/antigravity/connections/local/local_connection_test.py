@@ -19,6 +19,7 @@ import base64
 import contextlib
 import datetime
 import enum
+import functools
 import importlib
 import io
 import json
@@ -325,6 +326,75 @@ class CallableToToolProtoTest(unittest.TestCase):
     )
     self.assertEqual(schema.get("const"), "UPPERCASE_CONST")
     self.assertEqual(schema.get("default"), "DEFAULT_VAL")
+
+  def test_callable_to_tool_proto_deferred_functor_and_partial_context(self):
+    """Verifies PEP 563 functor and partial schema conversion and ToolContext hiding."""
+
+    class _DeferredCounter:
+
+      def __call__(self, value: "int", step: "int" = 1) -> "int":
+        """Adds value and step to the counter."""
+        return value + step
+
+    class _DeferredContextFunctor:
+
+      def __call__(
+          self, value: "int", ctx: "tool_context.ToolContext"
+      ) -> "int":
+        """Adds value using injected ToolContext."""
+        del ctx
+        return value
+
+    def _deferred_prefix_tool(
+        prefix: "str", body: "str", ctx: "tool_context.ToolContext"
+    ) -> "str":
+      """Prefixes body with ToolContext support."""
+      del ctx
+      return f"{prefix}:{body}"
+
+    counter = _DeferredCounter()
+    ctx_functor = _DeferredContextFunctor()
+    partial_ctx_tool = functools.partial(_deferred_prefix_tool, "WARN")
+
+    runner = tool_runner.ToolRunner([counter, ctx_functor, partial_ctx_tool])
+
+    counter_proto = local_connection.callable_to_tool_proto(
+        counter, tool_runner=runner
+    )
+    self.assertEqual(counter_proto.name, "_DeferredCounter")
+    self.assertEqual(
+        counter_proto.description, "Adds value and step to the counter."
+    )
+    counter_schema = json.loads(counter_proto.parameters_json_schema)
+    self.assertEqual(
+        counter_schema["properties"]["value"]["type"], "integer"
+    )
+    self.assertEqual(
+        counter_schema["properties"]["step"]["type"], "integer"
+    )
+    self.assertEqual(counter_schema["required"], ["value"])
+
+    ctx_proto = local_connection.callable_to_tool_proto(
+        ctx_functor, tool_runner=runner
+    )
+    self.assertEqual(ctx_proto.name, "_DeferredContextFunctor")
+    self.assertEqual(
+        ctx_proto.description, "Adds value using injected ToolContext."
+    )
+    ctx_schema = json.loads(ctx_proto.parameters_json_schema)
+    self.assertEqual(set(ctx_schema["properties"]), {"value"})
+    self.assertEqual(ctx_schema["properties"]["value"]["type"], "integer")
+
+    partial_proto = local_connection.callable_to_tool_proto(
+        partial_ctx_tool, tool_runner=runner
+    )
+    self.assertEqual(partial_proto.name, "_deferred_prefix_tool")
+    self.assertEqual(
+        partial_proto.description, "Prefixes body with ToolContext support."
+    )
+    partial_schema = json.loads(partial_proto.parameters_json_schema)
+    self.assertEqual(set(partial_schema["properties"]), {"body"})
+    self.assertEqual(partial_schema["properties"]["body"]["type"], "string")
 
 
 class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
