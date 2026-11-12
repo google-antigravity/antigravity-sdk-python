@@ -42,14 +42,21 @@ import asyncio
 from google.antigravity import Agent
 from google.antigravity import GeminiAPIEndpoint
 from google.antigravity import LocalAgentConfig
+from google.antigravity import ModelTarget
 from google.antigravity import types
 
 
 async def main() -> None:
-  # Configure priority inference by manually constructing a model endpoint.
+  # Configure priority inference by constructing a model endpoint and attaching
+  # it to a ModelTarget.
   options = types.GeminiModelOptions(service_tier=types.ServiceTier.PRIORITY)
   endpoint = GeminiAPIEndpoint(options=options)
-  config = LocalAgentConfig(endpoint=endpoint)
+  config = LocalAgentConfig(
+      model=ModelTarget(
+          name="gemini-3.8-flash",
+          endpoint=endpoint,
+      ),
+  )
 
   async with Agent(config=config) as agent:
     prompt = "Explain quantum computing in one sentence."

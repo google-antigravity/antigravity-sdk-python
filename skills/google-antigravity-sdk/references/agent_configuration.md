@@ -149,21 +149,27 @@ only the `api_key` and `vertex=True` are required.
 
 ### Prioritized Inference (`service_tier="priority"`)
 
-To enable Gemini Prioritized Inference, manually construct a `GeminiAPIEndpoint`
-or `VertexEndpoint` with `GeminiModelOptions`:
+To enable Gemini Prioritized Inference, construct a `GeminiAPIEndpoint` or
+`VertexEndpoint` with `GeminiModelOptions` and pass it via `ModelTarget`:
 
 ```python
 from google.antigravity import (
     Agent,
     GeminiAPIEndpoint,
     LocalAgentConfig,
+    ModelTarget,
     types,
 )
 
-# Configure priority inference by manually constructing an endpoint.
+# Configure priority inference by attaching an endpoint to a ModelTarget.
 options = types.GeminiModelOptions(service_tier=types.ServiceTier.PRIORITY)
 endpoint = GeminiAPIEndpoint(options=options)
-config = LocalAgentConfig(endpoint=endpoint)
+config = LocalAgentConfig(
+    model=ModelTarget(
+        name="gemini-3.8-flash",
+        endpoint=endpoint,
+    ),
+)
 
 async with Agent(config=config) as agent:
   response = await agent.chat("Explain quantum computing in one sentence.")
