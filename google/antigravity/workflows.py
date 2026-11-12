@@ -159,7 +159,7 @@ def agent(
       (cloning the parent agent's configuration), or matches the `name` of a
       `types.SubagentConfig` registered in `LocalAgentConfig(subagents=[...])`.
       Use `types.SubagentConfig` to configure an explicit `model` name (e.g.,
-      `model="gemini-3.8-flash"`), `system_instructions`, `capabilities`,
+      `model="gemini-4-hydrogen"`), `system_instructions`, `capabilities`,
       `tools`, or `skills_config` for the workflow agent.
     workspace: VCS workspace isolation mode for the spawned agent: `"inherit"`
       (run in the parent workspace), `"branch"` (fork an isolated workspace copy

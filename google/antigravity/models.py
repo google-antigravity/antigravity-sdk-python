@@ -32,7 +32,7 @@ import pydantic
 # Constants
 # =============================================================================
 
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-4-hydrogen"
 DEFAULT_IMAGE_GENERATION_MODEL = "gemini-3.1-flash-lite-image"
 
 

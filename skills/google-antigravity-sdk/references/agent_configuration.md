@@ -10,7 +10,7 @@ Google Antigravity SDK agents.
 
 ### Default Model
 
-Google Antigravity SDK's default model is `gemini-3.8-flash`.
+Google Antigravity SDK's default model is `gemini-4-hydrogen`.
 
 ### Default Image Generation Model
 
@@ -43,7 +43,7 @@ Here are small code snippets demonstrating advanced configurations using
 from google.antigravity import Agent, LocalAgentConfig
 
 config = LocalAgentConfig(
-    model="gemini-3.8-flash",
+    model="gemini-4-hydrogen",
 )
 async with Agent(config=config) as agent:
     # Use the agent
@@ -166,7 +166,7 @@ options = types.GeminiModelOptions(service_tier=types.ServiceTier.PRIORITY)
 endpoint = GeminiAPIEndpoint(options=options)
 config = LocalAgentConfig(
     model=ModelTarget(
-        name="gemini-3.8-flash",
+        name="gemini-4-hydrogen",
         endpoint=endpoint,
     ),
 )

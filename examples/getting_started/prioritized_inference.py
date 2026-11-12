@@ -53,7 +53,7 @@ async def main() -> None:
   endpoint = GeminiAPIEndpoint(options=options)
   config = LocalAgentConfig(
       model=ModelTarget(
-          name="gemini-3.8-flash",
+          name="gemini-4-hydrogen",
           endpoint=endpoint,
       ),
   )

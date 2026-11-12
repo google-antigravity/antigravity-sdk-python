@@ -97,7 +97,7 @@ strategy = LocalConnectionStrategy(
     binary_path="/path/to/localharness",
     models=[
         ModelConfig(
-            name="gemini-3.8-flash",
+            name="gemini-4-hydrogen",
             types=[ModelType.TEXT],
             endpoint=GeminiAPIEndpoint(api_key="..."),
         )
