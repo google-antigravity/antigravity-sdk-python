@@ -139,6 +139,7 @@ message CodeExecutionCallStep {
     string code = 2;
   }
   .genai.CodeExecutionCallStep.CodeExecutionCallStepArguments arguments = 1;
+  string working_directory = 2;
 }
 message UrlContextCallStep {
   message UrlContextCallStepArguments {
