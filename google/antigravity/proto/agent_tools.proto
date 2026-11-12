@@ -1,0 +1,87 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2024";
+
+package genai;
+
+import "google/antigravity/proto/content.proto";
+
+option features = { field_presence : IMPLICIT enum_type : OPEN utf8_validation : NONE };
+
+message AgentToolCallStep {
+  oneof call {
+    .genai.InvokeSubagentCall invoke_subagent = 1;
+    .genai.SendMessageCall send_message = 2;
+    .genai.ManageSubagentsCall manage_subagents = 3;
+    .genai.DefineSubagentCall define_subagent = 4;
+  }
+}
+message AgentToolResultStep {
+  oneof result {
+    .genai.InvokeSubagentResult invoke_subagent = 1;
+    .genai.SendMessageResult send_message = 2;
+    .genai.ManageSubagentsResult manage_subagents = 3;
+    .genai.DefineSubagentResult define_subagent = 4;
+  }
+}
+message InvokeSubagentCall {
+  string type_name = 1;
+  string role = 2;
+  repeated .genai.Content prompt = 3;
+}
+message InvokeSubagentResult {
+  message Subagent {
+    string interaction_id = 1;
+    string type_name = 2;
+    string role = 3;
+  }
+  repeated .genai.InvokeSubagentResult.Subagent subagents = 1;
+}
+message SendMessageCall {
+  string recipient = 1;
+  repeated .genai.Content message = 2;
+}
+message SendMessageResult {}
+message ManageSubagentsCall {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_LIST = 1;
+    ACTION_KILL = 2;
+    ACTION_KILL_ALL = 3;
+  }
+  .genai.ManageSubagentsCall.Action action = 1;
+  repeated string interaction_ids = 2;
+}
+message ManageSubagentsResult {
+  repeated .genai.ManagedSubagent subagents = 1;
+}
+message ManagedSubagent {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_IN_PROGRESS = 1;
+    STATUS_IDLE = 2;
+    STATUS_REQUIRES_ACTION = 3;
+    STATUS_FAILED = 4;
+    STATUS_CANCELLED = 5;
+  }
+  string interaction_id = 1;
+  .genai.ManagedSubagent.Status status = 2;
+}
+message DefineSubagentCall {
+  string name = 1;
+  string description = 2;
+  string system_prompt = 3;
+}
+message DefineSubagentResult {}
