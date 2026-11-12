@@ -157,18 +157,26 @@ async for call in response.tool_calls:
     show_executing_spinner(call.name)
 ```
 
-By default, `Agent` runs in **read-only mode** for safety. Pass
-`capabilities=CapabilitiesConfig()` to enable all tools (including writes).
+By default, an `Agent` enables most built-in tools but denies permission to
+execute shell commands (`run_command`) through its security policy,
+`policy.confirm_run_command()`. To change this restriction, pass a custom list
+to the `policies=[...]` parameter of the agent's configuration, for example
+`LocalAgentConfig(policies=[...])`. For details on implementing these permission
+scopes in a runnable script, see
+[`examples/getting_started/policies.py`](examples/getting_started/policies.py).
+
+`CapabilitiesConfig` controls which tools the model can see, using
+`enabled_tools` and `disabled_tools`. It doesn't control whether the agent is
+allowed to call those tools. To control permissions, use policies.
 
 ### Interactive Loop
 
 ```python
-from google.antigravity import LocalAgentConfig, CapabilitiesConfig
+from google.antigravity import LocalAgentConfig
 from google.antigravity.utils.interactive import run_interactive_loop
 
 config = LocalAgentConfig(
     # api_key="your_api_key_here",
-    capabilities=CapabilitiesConfig(),
 )
 await run_interactive_loop(config)
 ```
@@ -282,7 +290,7 @@ async with Agent(config) as agent:
 Control agent behavior with a declarative policy system:
 
 ```python
-from google.antigravity import LocalAgentConfig, CapabilitiesConfig
+from google.antigravity import LocalAgentConfig
 from google.antigravity.hooks.policy import deny, allow, ask_user, enforce
 from google.antigravity.utils.interactive import run_interactive_loop
 
@@ -293,7 +301,6 @@ policies = [
 ]
 
 config = LocalAgentConfig(
-    capabilities=CapabilitiesConfig(),
     policies=policies,
 )
 await run_interactive_loop(config)
