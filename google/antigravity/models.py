@@ -60,7 +60,7 @@ class ThinkingLevel(str, enum.Enum):
   LOW = "low"
   MEDIUM = "medium"
   HIGH = "high"
-  EXTRA_HIGH = "extra_high"
+  EXTRA_HIGH = "xhigh"
 
 
 class ServiceTier(str, enum.Enum):

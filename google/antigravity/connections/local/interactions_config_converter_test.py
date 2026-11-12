@@ -513,7 +513,7 @@ class InteractionsConfigConverterTest(absltest.TestCase):
         endpoint=types.GeminiAPIEndpoint(
             api_key="test-key",
             options=types.GeminiModelOptions(
-                thinking_level=types.ThinkingLevel.HIGH,
+                thinking_level=types.ThinkingLevel.EXTRA_HIGH,
                 service_tier="priority",
             ),
         ),
@@ -600,7 +600,7 @@ class InteractionsConfigConverterTest(absltest.TestCase):
                     "gemini_api_endpoint": {
                         "api_key": "test-key",
                         "options": {
-                            "thinking_level": "high",
+                            "thinking_level": "xhigh",
                             "service_tier": "priority",
                         },
                     },

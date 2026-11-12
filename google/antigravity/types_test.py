@@ -492,6 +492,7 @@ class ThinkingLevelTest(unittest.TestCase):
     self.assertEqual(types.ThinkingLevel.LOW, "low")
     self.assertEqual(types.ThinkingLevel.MEDIUM, "medium")
     self.assertEqual(types.ThinkingLevel.HIGH, "high")
+    self.assertEqual(types.ThinkingLevel.EXTRA_HIGH, "xhigh")
 
   def test_string_comparison(self):
     """Verifies ThinkingLevel members compare equal to their string values."""

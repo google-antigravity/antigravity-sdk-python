@@ -79,6 +79,25 @@ async with Agent(config=config) as agent:
 > [!NOTE]
 > `agent_behavior` defaults to `AgentBehavior.AUTONOMOUS`. If you enable interactive tools such as `BuiltinTools.ASK_QUESTION` without setting `agent_behavior=AgentBehavior.INTERACTIVE`, a validation warning will be logged.
 
+### Thinking Level (`ThinkingLevel`)
+
+Configure reasoning effort via `GeminiModelOptions(thinking_level=...)` using `types.ThinkingLevel` (`MINIMAL`, `LOW`, `MEDIUM`, `HIGH`, `EXTRA_HIGH`):
+
+```python
+from google.antigravity import LocalAgentConfig, types
+
+config = LocalAgentConfig(
+    model=types.ModelTarget(
+        name="gemini-4-hydrogen",
+        endpoint=types.GeminiAPIEndpoint(
+            options=types.GeminiModelOptions(
+                thinking_level=types.ThinkingLevel.EXTRA_HIGH,
+            ),
+        ),
+    ),
+)
+```
+
 ### Nested Subagents & Depth Controls (`max_subagent_depth`, `allowed_subagents`)
 
 The SDK supports multi-tier hierarchical subagent execution:
