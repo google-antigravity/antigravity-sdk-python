@@ -44,6 +44,15 @@ def _is_root_compaction(step: types.Step) -> bool:
   )
 
 
+def _is_root_finish(step: types.Step) -> bool:
+  """Returns True when a step is a root-conversation FINISH step."""
+  return (
+      step.type == types.StepType.FINISH
+      and step.depth == 0
+      and not step.parent_trajectory_id
+  )
+
+
 class Conversation:
   """Stateful session wrapping a single conversation with the agent.
 
@@ -74,8 +83,11 @@ class Conversation:
     self._compaction_indices: list[int] = []
     self._max_history_size = max_history_size
     self._turn_start_usage: types.UsageMetadata | None = None
+    self._last_turn_structured_output: Any | None = None
     for step in history or []:
       self._steps.append(step)
+      if _is_root_finish(step):
+        self._last_turn_structured_output = step.structured_output
       if _is_root_compaction(step):
         self._compaction_indices.append(len(self._steps) - 1)
     self._enforce_max_history()
@@ -130,6 +142,7 @@ class Conversation:
         await self._connection.wait_for_idle()
     self._turn_start_indices.append(len(self._steps))
     self._turn_start_usage = self._connection.cumulative_usage.model_copy()
+    self._last_turn_structured_output = None
     await self._connection.send(prompt, **kwargs)
 
   async def receive_steps(self) -> AsyncIterator[types.Step]:
@@ -146,6 +159,8 @@ class Conversation:
     """
     async for step in self._connection.receive_steps():
       self._steps.append(step)
+      if _is_root_finish(step):
+        self._last_turn_structured_output = step.structured_output
       if _is_root_compaction(step):
         self._compaction_indices.append(len(self._steps) - 1)
       self._enforce_max_history()
@@ -194,15 +209,12 @@ class Conversation:
             yield call
 
   def get_last_structured_output(self) -> Any | None:
-    """Extracts the structured output payload from the most recent FINISH step.
+    """Extracts the structured output payload from the most recent turn.
 
     Returns:
       The parsed JSON structured output object, or None if not found.
     """
-    for step in reversed(self._steps):
-      if step.type == types.StepType.FINISH:
-        return step.structured_output
-    return None
+    return self._last_turn_structured_output
 
   async def chat(
       self, prompt: types.Content | None = None, **kwargs: Any
@@ -269,6 +281,7 @@ class Conversation:
     self._turn_start_indices.clear()
     self._compaction_indices.clear()
     self._turn_start_usage = None
+    self._last_turn_structured_output = None
 
   def _enforce_max_history(self) -> None:
     """Trims history to max_history_size if a limit is set."""

@@ -760,6 +760,279 @@ class ConversationChatTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(await result.structured_output(), {"total_revenue": 386.0})
 
 
+class ConversationMultiTurnIsolationTest(unittest.IsolatedAsyncioTestCase):
+  """Validates per-turn ChatResponse state isolation across multi-turn sessions."""
+
+  def _make_scripted_connection(
+      self,
+      turns: list[
+          tuple[
+              list[types.Step],
+              types.UsageMetadata,
+              types.StopReason,
+          ]
+      ],
+  ) -> mock.MagicMock:
+    """Builds a Connection mock whose turns advance deterministically on send().
+
+    Args:
+      turns: Sequence of (steps, turn_usage_delta, stop_reason) tuples, one per
+        turn in order.
+
+    Returns:
+      A configured Connection mock.
+    """
+    mock_conn = mock.MagicMock(spec=connection.Connection)
+    mock_conn.wait_for_idle = mock.AsyncMock()
+    mock_conn.cumulative_usage = types.UsageMetadata()
+    mock_conn._last_turn_stop_reason = types.StopReason.UNSPECIFIED
+    state = {"turn_idx": -1, "idle": True}
+
+    type(mock_conn).is_idle = mock.PropertyMock(
+        side_effect=lambda: state["idle"]
+    )
+
+    async def send_side_effect(prompt, **kwargs):
+      del prompt, kwargs
+      state["turn_idx"] += 1
+      state["idle"] = False
+
+    def receive_steps_side_effect():
+      idx = state["turn_idx"]
+      steps, usage_delta, stop_reason = turns[idx]
+
+      async def _gen():
+        for step in steps:
+          yield step
+        mock_conn.cumulative_usage = mock_conn.cumulative_usage + usage_delta
+        mock_conn._last_turn_stop_reason = stop_reason
+        state["idle"] = True
+
+      return _gen()
+
+    mock_conn.send = mock.AsyncMock(side_effect=send_side_effect)
+    mock_conn.receive_steps.side_effect = receive_steps_side_effect
+    return mock_conn
+
+  async def test_multi_turn_chat_isolates_structured_output_usage_and_stop_reason(
+      self,
+  ):
+    """Verifies Turn 2 does not clobber Turn 1's ChatResponse state.
+
+    What: Runs two structured-output turns with distinct payloads, token usages,
+      and stop reasons on a single Conversation.
+    Why: Ensures retaining earlier ChatResponse references across multi-turn
+      conversations preserves each turn's own structured_output(),
+      usage_metadata, and stop_reason.
+    How: Resolves Turn 1, runs and resolves Turn 2, and asserts Turn 1's
+      accessors still return Turn 1's exact values alongside Turn 2's values.
+    """
+    s1_text = _make_step("Turn 1 text", step_index=1, is_final=True)
+    s1_text.content_delta = "Turn 1 text"
+    s1_finish = _make_step(
+        "Finished", step_index=2, step_type=types.StepType.FINISH
+    )
+    s1_finish.structured_output = {
+        "service_name": "payments-gateway",
+        "estimated_rps": 12500,
+    }
+
+    s2_text = _make_step("Turn 2 text", step_index=3, is_final=True)
+    s2_text.content_delta = "Turn 2 text"
+    s2_finish = _make_step(
+        "Finished", step_index=4, step_type=types.StepType.FINISH
+    )
+    s2_finish.structured_output = {
+        "service_name": "internal-ledger",
+        "estimated_rps": 400,
+    }
+
+    usage1 = types.UsageMetadata(
+        prompt_token_count=100,
+        cached_content_token_count=0,
+        candidates_token_count=20,
+        thoughts_token_count=10,
+        total_token_count=130,
+    )
+    usage2 = types.UsageMetadata(
+        prompt_token_count=250,
+        cached_content_token_count=0,
+        candidates_token_count=35,
+        thoughts_token_count=15,
+        total_token_count=300,
+    )
+    mock_conn = self._make_scripted_connection([
+        ([s1_text, s1_finish], usage1, types.StopReason.UNSPECIFIED),
+        (
+            [s2_text, s2_finish],
+            usage2,
+            types.StopReason.MAX_MODEL_CALLS_EXCEEDED,
+        ),
+    ])
+    conv = conversation.Conversation(mock_conn)
+
+    resp1 = await conv.chat("Turn 1")
+    self.assertEqual(
+        await resp1.structured_output(),
+        {"service_name": "payments-gateway", "estimated_rps": 12500},
+    )
+    self.assertEqual(resp1.usage_metadata, usage1)
+    self.assertEqual(resp1.stop_reason, types.StopReason.UNSPECIFIED)
+
+    resp2 = await conv.chat("Turn 2")
+    self.assertEqual(
+        await resp2.structured_output(),
+        {"service_name": "internal-ledger", "estimated_rps": 400},
+    )
+    self.assertEqual(resp2.usage_metadata, usage2)
+    self.assertEqual(
+        resp2.stop_reason, types.StopReason.MAX_MODEL_CALLS_EXCEEDED
+    )
+
+    # Re-inspect Turn 1 after Turn 2 completed.
+    self.assertEqual(await resp1.text(), "Turn 1 text")
+    self.assertEqual(
+        await resp1.structured_output(),
+        {"service_name": "payments-gateway", "estimated_rps": 12500},
+    )
+    self.assertEqual(resp1.usage_metadata, usage1)
+    self.assertEqual(resp1.stop_reason, types.StopReason.UNSPECIFIED)
+    self.assertEqual(conv.total_usage.total_token_count, 430)
+
+  async def test_mixed_structured_and_unstructured_turns_do_not_bleed(self):
+    """Verifies unstructured or subagent-only turns do not inherit prior output.
+
+    What: Runs Turn 1 with structured_output, Turn 2 with plain text plus
+      subagent FINISH steps, Turn 3 with structured_output=None, and Turn 4 with
+      falsy structured_output={}.
+    Why: Prevents a turn without a root FINISH step from inheriting an earlier
+      turn's FINISH step or picking up a child subagent's FINISH step, while
+      preserving falsy JSON payloads like {}.
+    How: Asserts each turn's ChatResponse.structured_output() matches strictly
+      its own root FINISH payload (or None when absent).
+    """
+    t1_finish = _make_step(
+        "Finished", step_index=1, step_type=types.StepType.FINISH
+    )
+    t1_finish.structured_output = {"turn": 1}
+
+    t2_subagent_depth_only = _make_step(
+        "Subagent depth", step_index=1, step_type=types.StepType.FINISH
+    )
+    t2_subagent_depth_only.depth = 1
+    t2_subagent_depth_only.structured_output = {"subagent_depth": 98}
+
+    t2_subagent_parent_only = _make_step(
+        "Subagent parent", step_index=2, step_type=types.StepType.FINISH
+    )
+    t2_subagent_parent_only.parent_trajectory_id = "root"
+    t2_subagent_parent_only.structured_output = {"subagent_parent": 99}
+
+    t2_plain = _make_step("Plain reply", step_index=3, is_final=True)
+    t2_plain.content_delta = "Plain reply"
+
+    t3_empty_finish = _make_step(
+        "", step_index=4, step_type=types.StepType.FINISH
+    )
+    t3_empty_finish.structured_output = None
+
+    t4_falsy_finish = _make_step(
+        "{}", step_index=5, step_type=types.StepType.FINISH
+    )
+    t4_falsy_finish.structured_output = {}
+
+    zero_usage = types.UsageMetadata(
+        prompt_token_count=0,
+        cached_content_token_count=0,
+        candidates_token_count=0,
+        thoughts_token_count=0,
+        total_token_count=0,
+    )
+    mock_conn = self._make_scripted_connection([
+        ([t1_finish], zero_usage, types.StopReason.UNSPECIFIED),
+        (
+            [t2_subagent_depth_only, t2_subagent_parent_only, t2_plain],
+            zero_usage,
+            types.StopReason.UNSPECIFIED,
+        ),
+        ([t3_empty_finish], zero_usage, types.StopReason.UNSPECIFIED),
+        ([t4_falsy_finish], zero_usage, types.StopReason.UNSPECIFIED),
+    ])
+    conv = conversation.Conversation(mock_conn)
+
+    resp1 = await conv.chat("Turn 1")
+    self.assertEqual(await resp1.structured_output(), {"turn": 1})
+
+    resp2 = await conv.chat("Turn 2")
+    self.assertEqual(await resp2.text(), "Plain reply")
+    self.assertIsNone(await resp2.structured_output())
+    self.assertEqual(await resp1.structured_output(), {"turn": 1})
+
+    resp3 = await conv.chat("Turn 3")
+    self.assertIsNone(await resp3.structured_output())
+    self.assertEqual(await resp1.structured_output(), {"turn": 1})
+
+    resp4 = await conv.chat("Turn 4")
+    self.assertEqual(await resp4.structured_output(), {})
+
+    seeded = conversation.Conversation(
+        mock_conn,
+        history=[t1_finish, t2_subagent_depth_only, t2_subagent_parent_only],
+    )
+    self.assertEqual(seeded.get_last_structured_output(), {"turn": 1})
+
+  async def test_max_history_trimming_and_clear_history_preserve_turn_snapshots(
+      self,
+  ):
+    """Verifies max_history_size trimming and clear_history() keep turn state.
+
+    What: Tests FINISH step evicted from history mid-turn by max_history_size=2
+      and clear_history() between turns.
+    Why: Ensures memory-bounding history operations never drop a turn's
+      structured_output, usage_metadata, or stop_reason.
+    How: Asserts structured_output() and metadata survive history eviction and
+      clear_history().
+    """
+    finish1 = _make_step(
+        "Finished", step_index=1, step_type=types.StepType.FINISH
+    )
+    finish1.structured_output = {"trimmed_turn": 1}
+    trailing_steps = [
+        _make_step(f"post-{i}", step_index=i + 2, is_final=(i == 2))
+        for i in range(3)
+    ]
+    trailing_steps[-1].content_delta = "done"
+
+    usage1 = types.UsageMetadata(
+        prompt_token_count=25,
+        cached_content_token_count=0,
+        candidates_token_count=0,
+        thoughts_token_count=0,
+        total_token_count=25,
+    )
+    mock_conn = self._make_scripted_connection([
+        (
+            [finish1, *trailing_steps],
+            usage1,
+            types.StopReason.MAX_OUTPUT_TOKENS_EXCEEDED,
+        ),
+    ])
+    conv = conversation.Conversation(mock_conn, max_history_size=2)
+
+    resp1 = await conv.chat("Turn 1")
+    self.assertEqual(await resp1.text(), "done")
+    self.assertEqual(len(conv.history), 2)
+    self.assertEqual(await resp1.structured_output(), {"trimmed_turn": 1})
+
+    conv.clear_history()
+    self.assertIsNone(conv.get_last_structured_output())
+    self.assertEqual(await resp1.structured_output(), {"trimmed_turn": 1})
+    self.assertEqual(resp1.usage_metadata, usage1)
+    self.assertEqual(
+        resp1.stop_reason, types.StopReason.MAX_OUTPUT_TOKENS_EXCEEDED
+    )
+
+
 class ConversationStateTest(unittest.IsolatedAsyncioTestCase):
   """Validates state introspection properties."""
 
