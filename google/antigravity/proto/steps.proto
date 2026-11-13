@@ -271,6 +271,12 @@ message LegacyAudioContent {
   int32 rate = 4;
   int32 channels = 5;
   int32 sample_rate = 6;
+  oneof processing {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.AudioContent.Processing processing_type = 17;
+    .genai.AudioContent.MediaProcessing processing_config = 18;
+  }
 }
 message LegacyDocumentContent {
   .genai.DocumentContent.MimeType mime_type = 1
@@ -279,6 +285,13 @@ message LegacyDocumentContent {
   oneof data_or_uri {
     bytes data = 2;
     string uri = 3;
+  }
+  .genai.MediaResolution resolution = 17;
+  oneof processing {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.DocumentContent.Processing processing_type = 18;
+    .genai.DocumentContent.MediaProcessing processing_config = 19;
   }
 }
 message LegacyVideoContent {

@@ -99,6 +99,17 @@ message ImageContent {
   .genai.MediaResolution resolution = 5;
 }
 message AudioContent {
+  message StaticMediaProcessing {
+    .google.protobuf.Duration start_offset = 1;
+    .google.protobuf.Duration end_offset = 2;
+  }
+  message MediaProcessing {
+    oneof type {
+      option (gaos.parsing.subtype_source) = true;
+
+      .genai.AudioContent.StaticMediaProcessing static = 2;
+    }
+  }
   enum MimeType {
     TYPE_UNSPECIFIED = 0;
     TYPE_WAV = 1 [(gaos.parsing.enum_value_name) = "audio/wav"];
@@ -118,6 +129,10 @@ message AudioContent {
         [(gaos.parsing.enum_value_name) = "video/audio/s16le"];
     TYPE_WEBM = 15 [(gaos.parsing.enum_value_name) = "audio/webm"];
   }
+  enum Processing {
+    PROCESSING_UNSPECIFIED = 0;
+    STATIC = 1;
+  }
   .genai.AudioContent.MimeType mime_type = 1
       [json_name = "legacy_mime_type_enum"];
   string mime_type_string = 11;
@@ -127,8 +142,51 @@ message AudioContent {
   }
   int32 channels = 7;
   int32 sample_rate = 8;
+  oneof processing {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.AudioContent.Processing processing_type = 17;
+    .genai.AudioContent.MediaProcessing processing_config = 18;
+  }
 }
 message DocumentContent {
+  message PageProcessingOptions {
+    enum ContentLayer {
+      CONTENT_LAYER_UNSPECIFIED = 0;
+      PAGE_IMAGE = 1;
+      PAGE_TEXT = 2;
+    }
+    int32 start_page = 1;
+    int32 end_page = 2;
+    repeated .genai.DocumentContent.PageProcessingOptions.ContentLayer
+        content_layers = 3;
+  }
+  message SpreadsheetProcessingOptions {
+    enum ContentLayer {
+      CONTENT_LAYER_UNSPECIFIED = 0;
+      VISUAL = 1;
+      DATA = 2;
+      FORMULAS = 3;
+    }
+    string visible_cells = 1;
+    int32 sheet_index = 2;
+    repeated .genai.DocumentContent.SpreadsheetProcessingOptions.ContentLayer
+        content_layers = 3;
+  }
+  message StaticMediaProcessing {
+    oneof format_options {
+      .genai.DocumentContent.PageProcessingOptions page_options = 1;
+      .genai.DocumentContent.SpreadsheetProcessingOptions spreadsheet_options =
+          2;
+    }
+  }
+  message MediaProcessing {
+    oneof type {
+      option (gaos.parsing.subtype_source) = true;
+
+      .genai.DocumentContent.StaticMediaProcessing static = 2;
+    }
+  }
   enum MimeType {
     TYPE_UNSPECIFIED = 0;
     TYPE_PDF = 1 [(gaos.parsing.enum_value_name) = "application/pdf"];
@@ -160,6 +218,10 @@ message DocumentContent {
     TYPE_ODS = 12 [(gaos.parsing.enum_value_name) =
                        "application/vnd.oasis.opendocument.spreadsheet"];
   }
+  enum Processing {
+    PROCESSING_UNSPECIFIED = 0;
+    STATIC = 1;
+  }
   .genai.DocumentContent.MimeType mime_type = 1
       [json_name = "legacy_mime_type_enum"];
   string mime_type_string = 6;
@@ -167,12 +229,27 @@ message DocumentContent {
     bytes data = 2;
     string uri = 5;
   }
+  .genai.MediaResolution resolution = 17;
+  oneof processing {
+    option (gaos.parsing.is_union) = true;
+
+    .genai.DocumentContent.Processing processing_type = 18;
+    .genai.DocumentContent.MediaProcessing processing_config = 19;
+  }
 }
 message VideoContent {
   message StaticMediaProcessing {
+    enum ContentLayer {
+      CONTENT_LAYER_UNSPECIFIED = 0;
+      FRAMES = 1;
+      AUDIO = 2;
+      TRANSCRIPT = 3;
+    }
     .google.protobuf.Duration start_offset = 1;
     .google.protobuf.Duration end_offset = 2;
     double fps = 3;
+    repeated .genai.VideoContent.StaticMediaProcessing.ContentLayer
+        content_layers = 4;
   }
   message MediaProcessing {
     oneof type {
