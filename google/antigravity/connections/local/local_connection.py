@@ -1602,7 +1602,7 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
     ) from last_exception
 
   async def _spawn_harness_and_connect_ws(
-      self, *, use_interactions_api: bool = False
+      self,
   ) -> tuple[subprocess.Popen[bytes], Any, str]:
     """Spawns the localharness process, exchanges stdio config, and connects WS."""
     sdk_version = _get_sdk_version()
@@ -1621,8 +1621,6 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         client_info=client_info_proto,
         env=env_map,
     )
-    if use_interactions_api:
-      input_config.use_interactions_api = True
 
     merged_env = {**os.environ, **env_map} if self._env is not None else None
 

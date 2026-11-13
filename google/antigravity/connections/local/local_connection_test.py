@@ -4105,39 +4105,6 @@ class LocalConnectionStrategyConnectTest(unittest.IsolatedAsyncioTestCase):
         ),
     ])
 
-  @mock.patch("websockets.connect", new_callable=mock.AsyncMock)
-  @mock.patch("subprocess.Popen")
-  async def test_spawn_harness_sets_use_interactions_api(
-      self, mock_popen, mock_connect
-  ):
-    """Verifies _spawn_harness_and_connect_ws sets use_interactions_api on InputConfig."""
-    output_config = localharness_pb2.OutputConfig(port=8080, api_key="fake-key")
-    serialized = output_config.SerializeToString()
-    length_bytes = struct.pack("<I", len(serialized))
-
-    mock_proc = mock.MagicMock()
-    mock_proc.stdin = mock.MagicMock()
-    mock_proc.stdout = mock.MagicMock()
-    mock_proc.stderr = io.BytesIO(b"")
-    mock_proc.stdout.read.side_effect = [length_bytes, serialized]
-    mock_popen.return_value = mock_proc
-
-    mock_ws = mock.MagicMock()
-    mock_connect.return_value = mock_ws
-
-    strategy = self._make_strategy()
-    process, ws, ws_url = await strategy._spawn_harness_and_connect_ws(
-        use_interactions_api=True
-    )
-    self.assertIs(process, mock_proc)
-    self.assertIs(ws, mock_ws)
-    self.assertEqual(ws_url, "ws://localhost:8080/")
-
-    written_bytes = mock_proc.stdin.write.call_args[0][0]
-    parsed_config = localharness_pb2.InputConfig()
-    parsed_config.ParseFromString(written_bytes[4:])
-    self.assertTrue(parsed_config.use_interactions_api)
-
 
 _get_default_binary_path = local_connection._get_default_binary_path_external
 
