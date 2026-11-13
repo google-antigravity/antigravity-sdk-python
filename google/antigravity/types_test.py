@@ -2135,6 +2135,150 @@ class ChatResponseStreamTest(unittest.IsolatedAsyncioTestCase):
     with self.assertRaisesRegex(ValueError, "broken payload"):
       await response_after_text.structured_output()
 
+  async def test_stream_completion_and_error_snapshot_turn_metadata(self):
+    """Verifies completed and failed streams snapshot turn metadata once.
+
+    What: Tests metadata snapshotting on normal completion, cancellation,
+      exceptions, and conversation=None before conversation state changes.
+    Why: Ensures retained ChatResponse instances preserve their own turn's
+      structured_output(), usage_metadata, and stop_reason across later turns.
+    How: Resolves/fails streams, mutates mock_conv to Turn 2 values, and
+      asserts Turn 1's ChatResponse retains Turn 1 metadata and defensive
+      UsageMetadata copies.
+    """
+
+    async def ok_stream():
+      yield types.Text(step_index=1, text="turn 1")
+
+    mock_conv = mock.MagicMock(spec=conversation.Conversation)
+    mock_conv.get_last_structured_output.return_value = {"turn": 1}
+    mock_conv.last_turn_usage = types.UsageMetadata(
+        prompt_token_count=40,
+        candidates_token_count=10,
+        total_token_count=50,
+    )
+    mock_conv._last_turn_stop_reason = types.StopReason.MAX_MODEL_CALLS_EXCEEDED
+    resp_ok = types.ChatResponse(ok_stream(), conversation=mock_conv)
+    self.assertEqual(await resp_ok.text(), "turn 1")
+
+    # Mutate conversation to simulate Turn 2 overwriting live properties.
+    mock_conv.get_last_structured_output.return_value = {"turn": 2}
+    mock_conv.last_turn_usage = types.UsageMetadata(
+        prompt_token_count=900,
+        candidates_token_count=99,
+        total_token_count=999,
+    )
+    mock_conv._last_turn_stop_reason = types.StopReason.UNSPECIFIED
+
+    self.assertEqual(await resp_ok.structured_output(), {"turn": 1})
+    usage = resp_ok.usage_metadata
+    self.assertIsNotNone(usage)
+    self.assertEqual(usage.total_token_count, 50)
+    usage.prompt_token_count = 12345
+    self.assertEqual(resp_ok.usage_metadata.prompt_token_count, 40)
+    self.assertEqual(
+        resp_ok.stop_reason, types.StopReason.MAX_MODEL_CALLS_EXCEEDED
+    )
+
+    for name, raised_exc in (
+        ("cancelled", types.AntigravityCancelledError("aborted")),
+        ("runtime_error", RuntimeError("backend failure")),
+    ):
+      with self.subTest(name):
+
+        async def interrupted_stream(exc=raised_exc):
+          yield types.Text(step_index=1, text="partial")
+          raise exc
+
+        err_conv = mock.MagicMock(spec=conversation.Conversation)
+        err_conv.last_turn_usage = types.UsageMetadata(
+            prompt_token_count=15, total_token_count=15
+        )
+        err_conv._last_turn_stop_reason = types.StopReason.QUOTA_EXHAUSTED
+        resp_err = types.ChatResponse(
+            interrupted_stream(), conversation=err_conv
+        )
+
+        with self.assertRaises(type(raised_exc)):
+          await resp_err.resolve()
+
+        err_conv.last_turn_usage = types.UsageMetadata(
+            prompt_token_count=500, total_token_count=500
+        )
+        err_conv._last_turn_stop_reason = types.StopReason.UNSPECIFIED
+
+        self.assertEqual(resp_err.usage_metadata.total_token_count, 15)
+        self.assertEqual(resp_err.stop_reason, types.StopReason.QUOTA_EXHAUSTED)
+        with self.assertRaises(type(raised_exc)):
+          await resp_err.structured_output()
+
+    async def standalone_stream():
+      yield types.Text(step_index=0, text="standalone")
+
+    standalone = types.ChatResponse(standalone_stream(), conversation=None)
+    self.assertIsNone(standalone.usage_metadata)
+    self.assertEqual(standalone.stop_reason, types.StopReason.UNSPECIFIED)
+    await standalone.cancel()
+    self.assertEqual(await standalone.text(), "standalone")
+    self.assertIsNone(await standalone.structured_output())
+
+  async def test_workflow_result_preserves_turn_metadata_across_turns(self):
+    """Verifies WorkflowResult snapshots turn metadata independently of later turns.
+
+    What: Tests WorkflowResult(chunk_stream=None) and _from_chat_response() for
+      both resolved and unresolved ChatResponse instances before mutating
+      conversation state.
+    Why: Ensures WorkflowResult inherits full multi-turn ChatResponse isolation
+      and carries over all ChatResponse state automatically.
+    How: Constructs WorkflowResult variants, mutates conversation state, and
+      asserts structured_output(), usage_metadata, and stop_reason hold.
+    """
+    mock_conv = mock.MagicMock(spec=conversation.Conversation)
+    mock_conv.get_last_structured_output.return_value = {"wf": 1}
+    mock_conv.last_turn_usage = types.UsageMetadata(
+        prompt_token_count=30, candidates_token_count=10, total_token_count=40
+    )
+    mock_conv._last_turn_stop_reason = types.StopReason.MAX_TOOL_CALLS_EXCEEDED
+
+    direct_wf = types.WorkflowResult(
+        conversation=mock_conv,
+        script_path="/tmp/wf1.py",
+        response_text="Workflow 1 done.",
+    )
+
+    async def resolved_stream():
+      yield types.Text(step_index=1, text="Workflow 1 stream.")
+
+    chat_resp = types.ChatResponse(resolved_stream(), conversation=mock_conv)
+    text = await chat_resp.text()
+    from_resolved = types.WorkflowResult._from_chat_response(  # pylint: disable=protected-access
+        chat_resp,
+        script_path="/tmp/wf1.py",
+        response_text=text,
+    )
+
+    async def pending_stream():
+      yield types.Text(step_index=1, text="Workflow pending.")
+
+    pending_chat = types.ChatResponse(pending_stream(), conversation=mock_conv)
+    from_pending = types.WorkflowResult._from_chat_response(  # pylint: disable=protected-access
+        pending_chat,
+        script_path="/tmp/pending.py",
+    )
+    self.assertEqual(await from_pending.text(), "Workflow pending.")
+
+    # Simulate Turn 2 overwriting all live conversation properties.
+    mock_conv.get_last_structured_output.return_value = {"wf": 2}
+    mock_conv.last_turn_usage = types.UsageMetadata(
+        prompt_token_count=200, candidates_token_count=50, total_token_count=250
+    )
+    mock_conv._last_turn_stop_reason = types.StopReason.UNSPECIFIED
+
+    for wf in (direct_wf, from_resolved, from_pending):
+      self.assertEqual(await wf.structured_output(), {"wf": 1})
+      self.assertEqual(wf.usage_metadata.total_token_count, 40)
+      self.assertEqual(wf.stop_reason, types.StopReason.MAX_TOOL_CALLS_EXCEEDED)
+
 
 class McpServerConfigTest(parameterized.TestCase):
   """Validates the McpServerConfig Pydantic models and required fields."""

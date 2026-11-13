@@ -1764,6 +1764,24 @@ class ChatResponse:
     self._is_done = False
     self._stream_error: BaseException | None = None
     self._pull_lock = asyncio.Lock()
+    self._structured_output: Any | None = None
+    self._usage_metadata: UsageMetadata | None = None
+    self._stop_reason: StopReason = StopReason.UNSPECIFIED
+
+  def _finalize(self, error: BaseException | None = None) -> None:
+    """Snapshots turn-level metadata once the stream terminates."""
+    self._stream_error = error
+    if self._conversation is not None:
+      if error is None:
+        self._structured_output = (
+            self._conversation.get_last_structured_output()
+        )
+      usage = self._conversation.last_turn_usage
+      self._usage_metadata = (
+          usage.model_copy() if isinstance(usage, UsageMetadata) else usage
+      )
+      self._stop_reason = self._conversation._last_turn_stop_reason  # pylint: disable=protected-access
+    self._is_done = True
 
   @property
   def chunks(self) -> AsyncIterator[StreamChunk | ToolCall | ToolResult]:
@@ -1802,10 +1820,9 @@ class ChatResponse:
             try:
               chunk = await self._chunk_stream.__anext__()
             except StopAsyncIteration:
-              self._is_done = True
+              self._finalize()
             except (asyncio.CancelledError, Exception) as e:
-              self._stream_error = e
-              self._is_done = True
+              self._finalize(error=e)
               raise
             else:
               self._buffered_chunks.append(chunk)
@@ -1871,16 +1888,26 @@ class ChatResponse:
       await self.resolve()
     if self._stream_error is not None:
       raise self._stream_error
-    return self._conversation.get_last_structured_output()
+    return self._structured_output
 
   @property
   def usage_metadata(self) -> UsageMetadata | None:
     """Accumulated token usage across all model invocations in this turn."""
-    return self._conversation.last_turn_usage
+    if self._is_done:
+      usage = self._usage_metadata
+    elif self._conversation is not None:
+      usage = self._conversation.last_turn_usage
+    else:
+      return None
+    return usage.model_copy() if isinstance(usage, UsageMetadata) else usage
 
   @property
   def stop_reason(self) -> StopReason:
     """The reason why the execution turn stopped."""
+    if self._is_done:
+      return self._stop_reason
+    if self._conversation is None:
+      return StopReason.UNSPECIFIED
     return self._conversation._last_turn_stop_reason  # pylint: disable=protected-access
 
   async def cancel(self) -> None:
@@ -1889,7 +1916,7 @@ class ChatResponse:
     This cleanly aborts the active stream on the backend. If the stream is
     already completed, this method acts as a safe no-op.
     """
-    if not self._is_done:
+    if not self._is_done and self._conversation is not None:
       await self._conversation.cancel()
 
 
@@ -1955,7 +1982,7 @@ class WorkflowResult(ChatResponse):
       self._buffered_chunks = (
           [Text(step_index=0, text=response_text)] if response_text else []
       )
-      self._is_done = True
+      self._finalize()
 
   @classmethod
   def _from_chat_response(
@@ -1978,10 +2005,10 @@ class WorkflowResult(ChatResponse):
         output=output,
         response_text=response_text,
     )
-    if hasattr(chat_resp, "_buffered_chunks"):
-      res._buffered_chunks = list(chat_resp._buffered_chunks)  # pylint: disable=protected-access
-      res._is_done = getattr(chat_resp, "_is_done", True)  # pylint: disable=protected-access
-      res._stream_error = getattr(chat_resp, "_stream_error", None)  # pylint: disable=protected-access
+    if issubclass(type(chat_resp), ChatResponse):
+      res.__dict__.update(
+          {k: v for k, v in chat_resp.__dict__.items() if k.startswith("_")}
+      )
     return res
 
 
