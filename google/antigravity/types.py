@@ -1804,8 +1804,8 @@ class ChatResponse:
             except StopAsyncIteration:
               self._is_done = True
             except (asyncio.CancelledError, Exception) as e:
-              self._is_done = True
               self._stream_error = e
+              self._is_done = True
               raise
             else:
               self._buffered_chunks.append(chunk)
@@ -1862,9 +1862,15 @@ class ChatResponse:
 
     Returns:
         The parsed structured output if available, otherwise None.
+
+    Raises:
+        asyncio.CancelledError: If the underlying stream was cancelled.
+        Exception: If the underlying stream terminated with an error.
     """
     if not self._is_done:
       await self.resolve()
+    if self._stream_error is not None:
+      raise self._stream_error
     return self._conversation.get_last_structured_output()
 
   @property

@@ -2095,6 +2095,46 @@ class ChatResponseStreamTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(wf_res.usage_metadata.total_token_count, 15)
     self.assertEqual(wf_res.stop_reason, types.StopReason.UNSPECIFIED)
 
+  async def test_structured_output_reraises_stream_error_on_repeat_calls(self):
+    """Verifies repeat structured_output() calls re-raise stored stream errors.
+
+    What: Exercises structured_output() after a stream fails on both initial
+      structured_output() calls and after an earlier text()/resolve() failure.
+    Why: Ensures a failed or cancelled stream never swallows _stream_error and
+      returns stale or empty structured output on subsequent calls.
+    How: Raises RuntimeError from mock streams and asserts repeat
+      structured_output() invocations consistently re-raise RuntimeError.
+    """
+
+    async def failing_stream():
+      yield types.Text(step_index=1, text="partial")
+      raise RuntimeError("stream interrupted")
+
+    mock_conv = mock.MagicMock(spec=conversation.Conversation)
+    mock_conv.get_last_structured_output.return_value = {"stale": True}
+    response = types.ChatResponse(failing_stream(), conversation=mock_conv)
+
+    with self.assertRaisesRegex(RuntimeError, "stream interrupted"):
+      await response.structured_output()
+
+    with self.assertRaisesRegex(RuntimeError, "stream interrupted"):
+      await response.structured_output()
+
+    mock_conv.get_last_structured_output.assert_not_called()
+
+    async def failing_stream_via_text():
+      yield types.Text(step_index=1, text="partial")
+      raise ValueError("broken payload")
+
+    response_after_text = types.ChatResponse(
+        failing_stream_via_text(), conversation=mock_conv
+    )
+    with self.assertRaisesRegex(ValueError, "broken payload"):
+      await response_after_text.text()
+
+    with self.assertRaisesRegex(ValueError, "broken payload"):
+      await response_after_text.structured_output()
+
 
 class McpServerConfigTest(parameterized.TestCase):
   """Validates the McpServerConfig Pydantic models and required fields."""
