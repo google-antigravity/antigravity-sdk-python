@@ -84,6 +84,7 @@ class Conversation:
     self._max_history_size = max_history_size
     self._turn_start_usage: types.UsageMetadata | None = None
     self._last_turn_structured_output: Any | None = None
+    self._active_response: types.ChatResponse | None = None
     for step in history or []:
       self._steps.append(step)
       if _is_root_finish(step):
@@ -130,15 +131,30 @@ class Conversation:
       prompt: The user message to send.
       **kwargs: Strategy-specific options.
     """
-    if self._connection.is_idle is False:
+    if (
+        self._active_response is not None
+        and not self._active_response._is_done  # pylint: disable=protected-access
+    ):
+      try:
+        await self._active_response.resolve()
+      except (
+          RuntimeError,
+          types.AntigravityCancelledError,
+          types.AntigravityExecutionError,
+      ):
+        await self._connection.wait_for_idle()
+    elif not self._connection.is_idle:
       try:
         async for _ in self.receive_steps():
           pass
-      except RuntimeError:
-        # Catches the async generator "already running" error from
-        # Python's runtime.  Intentionally broad: any RuntimeError here
-        # means we cannot drain, so falling back to wait_for_idle() is
-        # safe since the active iterator is already preserving steps.
+      except (
+          RuntimeError,
+          types.AntigravityCancelledError,
+          types.AntigravityExecutionError,
+      ):
+        # Catches the async generator "already running" error from Python's
+        # runtime or prior-turn cancellation/execution errors. Falling back to
+        # wait_for_idle() ensures the backend is ready for the next turn.
         await self._connection.wait_for_idle()
     self._turn_start_indices.append(len(self._steps))
     self._turn_start_usage = self._connection.cumulative_usage.model_copy()
@@ -232,7 +248,10 @@ class Conversation:
       A lazy streaming ChatResponse object wrapping the chunk generator.
     """
     await self.send(prompt, **kwargs)
-    return types.ChatResponse(self.receive_chunks(), conversation=self)
+    self._active_response = types.ChatResponse(
+        self.receive_chunks(), conversation=self
+    )
+    return self._active_response
 
   # ---------------------------------------------------------------------------
   # History and state

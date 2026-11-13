@@ -1032,6 +1032,191 @@ class ConversationMultiTurnIsolationTest(unittest.IsolatedAsyncioTestCase):
         resp1.stop_reason, types.StopReason.MAX_OUTPUT_TOKENS_EXCEEDED
     )
 
+  async def test_unconsumed_and_partially_consumed_response_drained_on_next_turn(
+      self,
+  ):
+    """Verifies Conversation.send() finalizes an unconsumed prior ChatResponse.
+
+    What: Calls conv.chat("Turn 2") without awaiting resp1 (and in a second
+      case after reading only the first chunk of resp1), including when the
+      backend has already transitioned is_idle to True.
+    Why: Ensures resp1 buffers its own Turn 1 chunks and snapshots Turn 1's
+      structured_output, usage_metadata, and stop_reason before send() resets
+      turn tracking and dispatches Turn 2.
+    How: Drains Turn 2 first, then inspects resp1 and remaining cursors to
+      verify Turn 1 text and metadata are intact.
+    """
+    for mode in ("totally_unconsumed_already_idle", "partially_consumed"):
+      with self.subTest(mode):
+        t1_a = _make_step(
+            "Hello ", step_index=1, status=types.StepStatus.ACTIVE
+        )
+        t1_a.content_delta = "Hello "
+        t1_b = _make_step("Turn 1", step_index=1, is_final=True)
+        t1_b.content_delta = "Turn 1"
+        t1_fin = _make_step(
+            "Finished", step_index=2, step_type=types.StepType.FINISH
+        )
+        t1_fin.structured_output = {"turn": 1}
+
+        t2_text = _make_step("Turn 2", step_index=3, is_final=True)
+        t2_text.content_delta = "Turn 2"
+        t2_fin = _make_step(
+            "Finished", step_index=4, step_type=types.StepType.FINISH
+        )
+        t2_fin.structured_output = {"turn": 2}
+
+        usage1 = types.UsageMetadata(
+            prompt_token_count=50,
+            cached_content_token_count=0,
+            candidates_token_count=10,
+            thoughts_token_count=0,
+            total_token_count=60,
+        )
+        usage2 = types.UsageMetadata(
+            prompt_token_count=90,
+            cached_content_token_count=0,
+            candidates_token_count=20,
+            thoughts_token_count=0,
+            total_token_count=110,
+        )
+        mock_conn = self._make_scripted_connection([
+            (
+                [t1_a, t1_b, t1_fin],
+                usage1,
+                types.StopReason.QUOTA_EXHAUSTED,
+            ),
+            ([t2_text, t2_fin], usage2, types.StopReason.UNSPECIFIED),
+        ])
+        if mode == "totally_unconsumed_already_idle":
+          # Simulate background reader already setting is_idle=True before the
+          # caller ever consumed resp1.
+          type(mock_conn).is_idle = mock.PropertyMock(return_value=True)
+
+        conv = conversation.Conversation(mock_conn)
+        resp1 = await conv.chat("Turn 1")
+
+        partial_cursor = None
+        if mode == "partially_consumed":
+          partial_cursor = resp1.chunks
+          first = await partial_cursor.__anext__()
+          self.assertEqual(first, types.Text(step_index=1, text="Hello "))
+
+        resp2 = await conv.chat("Turn 2")
+        self.assertEqual(await resp2.text(), "Turn 2")
+        self.assertEqual(await resp2.structured_output(), {"turn": 2})
+        self.assertEqual(resp2.usage_metadata, usage2)
+        self.assertEqual(resp2.stop_reason, types.StopReason.UNSPECIFIED)
+
+        if partial_cursor is not None:
+          rest = [c async for c in partial_cursor]
+          self.assertEqual(rest, [types.Text(step_index=1, text="Turn 1")])
+        self.assertEqual(await resp1.text(), "Hello Turn 1")
+        self.assertEqual(await resp1.structured_output(), {"turn": 1})
+        self.assertEqual(resp1.usage_metadata, usage1)
+        self.assertEqual(resp1.stop_reason, types.StopReason.QUOTA_EXHAUSTED)
+
+  async def _assert_unconsumed_error_allows_next_turn(
+      self, stream_exc: BaseException, *, already_idle: bool = False
+  ) -> None:
+    """Runs a failing/cancelled Turn 1 without awaiting resp1, then Turn 2."""
+    mock_conn = mock.MagicMock(spec=connection.Connection)
+    mock_conn.wait_for_idle = mock.AsyncMock()
+    mock_conn.send = mock.AsyncMock()
+    mock_conn.cumulative_usage = types.UsageMetadata(
+        prompt_token_count=0, total_token_count=0
+    )
+    mock_conn._last_turn_stop_reason = (
+        types.StopReason.MAX_INPUT_TOKENS_EXCEEDED
+    )
+    idle_state = {"idle": True}
+    type(mock_conn).is_idle = mock.PropertyMock(
+        side_effect=lambda: idle_state["idle"]
+    )
+    turn = {"n": 0}
+
+    def receive_steps_side_effect():
+      turn["n"] += 1
+      if turn["n"] == 1:
+
+        async def _fail():
+          if already_idle:
+            idle_state["idle"] = True
+          raise stream_exc
+          yield  # pylint: disable=unreachable
+
+        return _fail()
+
+      async def _ok():
+        step = _make_step("Turn 2 ok", step_index=1, is_final=True)
+        step.content_delta = "Turn 2 ok"
+        yield step
+        mock_conn.cumulative_usage = types.UsageMetadata(
+            prompt_token_count=100, total_token_count=100
+        )
+        mock_conn._last_turn_stop_reason = types.StopReason.UNSPECIFIED
+        idle_state["idle"] = True
+
+      return _ok()
+
+    mock_conn.receive_steps.side_effect = receive_steps_side_effect
+    conv = conversation.Conversation(mock_conn)
+
+    async def send_turn(*args, **kwargs):
+      del args, kwargs
+      idle_state["idle"] = already_idle and mock_conn.send.call_count == 1
+      if mock_conn.send.call_count == 1:
+        mock_conn.cumulative_usage = types.UsageMetadata(
+            prompt_token_count=30, total_token_count=30
+        )
+
+    mock_conn.send.side_effect = send_turn
+
+    resp1 = await conv.chat("Turn 1")
+    resp2 = await conv.chat("Turn 2")
+    mock_conn.wait_for_idle.assert_awaited_once()
+    self.assertEqual(await resp2.text(), "Turn 2 ok")
+    self.assertEqual(resp2.usage_metadata.total_token_count, 70)
+    self.assertEqual(resp2.stop_reason, types.StopReason.UNSPECIFIED)
+
+    with self.assertRaises(type(stream_exc)):
+      await resp1.structured_output()
+    self.assertEqual(resp1.usage_metadata.total_token_count, 30)
+    self.assertEqual(
+        resp1.stop_reason, types.StopReason.MAX_INPUT_TOKENS_EXCEEDED
+    )
+
+  async def test_unconsumed_cancelled_or_error_response_allows_next_turn(
+      self,
+  ):
+    """Verifies send() isolates prior-turn cancellation and execution errors.
+
+    What: Starts Turn 1 whose unconsumed stream raises
+      AntigravityCancelledError, AntigravityExecutionError, or RuntimeError,
+      then starts Turn 2.
+    Why: Ensures cancelling or failing Turn 1 without awaiting resp1 does not
+      abort Turn 2, while preserving Turn 1's error and metadata on resp1.
+    How: Asserts wait_for_idle() runs, Turn 2 resolves cleanly, and awaiting
+      resp1 afterwards re-raises the Turn 1 error with Turn 1 metadata intact.
+    """
+    for name, stream_exc, already_idle in (
+        (
+            "cancelled",
+            types.AntigravityCancelledError("turn 1 cancelled"),
+            False,
+        ),
+        (
+            "execution_error",
+            types.AntigravityExecutionError("turn 1 model error"),
+            True,
+        ),
+        ("runtime_error", RuntimeError("generator busy"), False),
+    ):
+      with self.subTest(name):
+        await self._assert_unconsumed_error_allows_next_turn(
+            stream_exc, already_idle=already_idle
+        )
+
 
 class ConversationStateTest(unittest.IsolatedAsyncioTestCase):
   """Validates state introspection properties."""
