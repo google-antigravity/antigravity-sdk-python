@@ -7,6 +7,76 @@ All notable changes to the Google Antigravity Python SDK will be documented in t
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.24] - 2026-11-16
+
+Antigravity SDK v0.1.24 updates the default model (`DEFAULT_MODEL`) to `gemini-4-hydrogen` and `ThinkingLevel.EXTRA_HIGH` to `"xhigh"`, expands local model capabilities in `LiteRTAgentConfig` with on-device vision support (for images), multi-turn KV prefix caching, and `reasoning`/`reasoning_content` thought-channel output. Key reliability and security updates include deterministic subprocess, stdio pipe, and WebSocket cleanup on `asyncio.CancelledError` or failure, structured `AntigravityConnectionError` and retry/usage reporting for `LocalOpenAIConnection`, media primitive serialization in `struct_converter`, deferred type-hint preservation for callable tools, path-traversal normalization in `ToolCall.canonical_path`, accurate root-level tracking in `Conversation.compaction_indices`, and multi-turn `ChatResponse`/`Conversation` state isolation.
+
+### 🌟 Key Highlights
+- **On-Device Vision Support (`LiteRTAgentConfig`)**: Automatically detect vision-capable `.litertlm` checkpoints (such as Gemma 4 26B) via `litert_lm.ModelInfo` and pass local images directly to `agent.chat()` for offline and hybrid visual workflows (requires `litert-lm >= 0.19.1`).
+  ```python
+  from google.antigravity import Agent, LiteRTAgentConfig, from_file
+
+  config = LiteRTAgentConfig(model_path="~/.litert-lm/models/gemma4-26b/model.litertlm")
+  async with Agent(config) as agent:
+      response = await agent.chat(["Check this UI for layout bugs:", from_file("ui.png")])
+  ```
+
+- **Prefix Caching (`LiteRTAgentConfig`)**: Reuses the KV cache across sequential agent turns to eliminate redundant prompt prefill on static system instructions, tool schemas, and prior conversation history for faster multi-step interactions.
+
+- **Default Model (`gemini-4-hydrogen`) & `ThinkingLevel.EXTRA_HIGH` Mapping**: Updated the SDK default model (`DEFAULT_MODEL`) from `"gemini-3.8-flash"` to `"gemini-4-hydrogen"` and mapped `ThinkingLevel.EXTRA_HIGH` to `"xhigh"` across Gemini API, Vertex AI, and Interactions API surfaces. Override the default anytime via `model` or `ModelTarget` on `LocalAgentConfig`.
+  ```python
+  from google.antigravity import (
+      GeminiAPIEndpoint,
+      GeminiModelOptions,
+      LocalAgentConfig,
+      ModelTarget,
+      ThinkingLevel,
+  )
+
+  config = LocalAgentConfig(
+      model=ModelTarget(
+          name="gemini-4-hydrogen",
+          endpoint=GeminiAPIEndpoint(
+              options=GeminiModelOptions(thinking_level=ThinkingLevel.EXTRA_HIGH)
+          ),
+      )
+  )
+  ```
+
+- **Reliable Subprocess and Transport Cleanup on Cancellation**: Session startup, cancellation via `asyncio.CancelledError`, and disconnection now reliably terminate and reap local runtime subprocesses and close stdio pipes and WebSocket or loopback transports without blocking on non-UTF-8 `stderr` or child file descriptors. Non-zero runtime exits during teardown now surface `AntigravityExecutionError` directly (resolving GitHub issue #279).
+  ```python
+  import asyncio
+  from google.antigravity import Agent, LocalAgentConfig
+
+  agent = Agent(LocalAgentConfig())
+  async def run_session() -> None:
+      async with asyncio.timeout(30), agent:
+          await agent.chat("Summarize workspace status.")
+  ```
+
+---
+
+### 📋 Detailed Changes
+
+#### Features & Enhancements
+- **LiteRT Vision Modality**: Added automatic vision capability and hardware backend detection (`"gpu"` / `"cpu"`) via `litert_lm.ModelInfo` in `LiteRTAgentConfig` (with optional `vision_backend` override) and OpenAI-to-LiteRT multimodal image translation (`from_file`, `Image`).
+- **LiteRT Multi-Turn Prefix Caching**: Cached active `LiteRT-LM` conversations across sequential loopback turns when message prefixes and tool schemas match, prefilling only newly added prompts and tool responses.
+- **LocalOpenAIConnection**: Populates token usage (`Usage`) and latency metadata on streaming SSE chunks for OpenAI Chat Completions and Responses APIs, and parses HTTP `Retry-After` headers to support automatic retries on transient 429 and 5xx responses.
+- **Tool Media Return Values (`struct_converter`)**: Supports returning SDK media primitives (`Image`, `Audio`, `Video`, `Document`) and Pydantic models directly from custom tools, serializing them as `Content` protos while summarizing inline binary media cleanly in JSON step content instead of dumping raw byte representations.
+- **Callable Tool Wrapping (`ToolRunner`)**: Preserved underlying function names, docstrings, and deferred stringified type hints (`from __future__ import annotations`) when wrapping `functools.partial` callables and callable class instances as tools.
+
+#### Model & Default Changes
+- **Default Model (`gemini-4-hydrogen`)**: Updated `DEFAULT_MODEL` from `"gemini-3.8-flash"` to `"gemini-4-hydrogen"` across the Python SDK, `localharness` prompt profiles, examples, and documentation. To override the default model, pass `model="<model-name>"` or `ModelTarget(name="<model-name>")` in `LocalAgentConfig`.
+- **`ThinkingLevel.EXTRA_HIGH` Mapping**: Updated `ThinkingLevel.EXTRA_HIGH` to `"xhigh"` (replacing `"extra_high"`) to align with Gemini API, Vertex AI, and Interactions API surfaces, and normalized per-request `"extra_high"` overrides to `"xhigh"` in `localharness`.
+
+#### Bug Fixes
+- **LiteRT Thought Channel Streaming**: Model thought tokens were omitted from LiteRT responses; resolved by emitting the thought channel as `reasoning` and `reasoning_content` fields in streaming SSE deltas and synchronous payloads (GitHub issue #267).
+- **LocalOpenAIConnection**: Non-200 HTTP responses previously surfaced as generic execution errors and could not be retried on transient failures; HTTP errors now surface as `AntigravityConnectionError` (consistent with Gemini local connections) and transient 429/5xx errors are marked retryable.
+- **ToolCall**: `ToolCall.canonical_path` previously retained uncollapsed `.` and `..` segments for `file://` URIs and plain paths, allowing traversal paths to bypass prefix-based workspace checks in user hooks; wire path normalization now resolves `.` and `..` segments.
+- **Conversation Compaction Tracking**: `Conversation.compaction_indices` previously recorded every `StepType.COMPACTION` step including in-progress `ACTIVE` updates and subagent compactions (`depth > 0`); it now records only root-level (`depth == 0`) compaction steps once they reach `StepStatus.DONE`.
+- **Multi-Turn `ChatResponse` & `Conversation` State Isolation**: Retained `ChatResponse` and `WorkflowResult` instances previously delegated `structured_output()`, `usage_metadata`, and `stop_reason` live to `Conversation` across subsequent turns, `Conversation.get_last_structured_output()` scanned prior turns and subagent `FINISH` steps, `ChatResponse.structured_output()` could swallow stream errors on repeat calls, and starting a new turn before awaiting the prior `ChatResponse` could leave chunks unconsumed. Resolved by snapshotting per-turn metadata on completion, scoping `get_last_structured_output()` to root (`depth == 0`) steps of the current turn, re-raising `_stream_error` on repeat `structured_output()` calls, and draining any active unconsumed `ChatResponse` before starting a new turn.
+- **Documentation & Examples**: Fixed `types.AntigravityCancelledError` import in the cancellation guide, updated prioritized inference documentation to pass `GeminiAPIEndpoint` via `ModelTarget`, corrected `README.md` to accurately describe default tool permissions (`confirm_run_command` gating `run_command` rather than read-only mode), and updated Gemini documentation URLs to `aistudio.google.com`.
+
 ## [0.1.23] - 2026-10-26
 
 Google Antigravity Python SDK v0.1.23 expands dynamic workflow orchestration with programmatic tool execution, reusable multi-turn workflow agents, and structured workflow input arguments, while adding multi-turn conversation caching for local LiteRT models and custom section titles for replacement system instructions. This release also improves OpenAPI/JSON Schema metadata preservation, deterministic tool path normalization, media home-directory expansion, and workflow JSON-RPC stream resilience.
