@@ -920,10 +920,16 @@ message BudgetConfig {
   .antigravity.localharness.BudgetConfig.BudgetScope scope = 6;
 }
 message CompactionConfig {
+  message StepCompaction {
+    int32 max_inline_frames = 1;
+    int64 media_byte_threshold = 2;
+    string note_line_prefix = 3;
+  }
   uint32 token_threshold = 1;
   uint32 checkpoint_interval_tokens = 2;
   uint32 max_context_tokens = 3;
   string summary_prompt_override = 4;
   bool use_model_reported_token_count = 5;
   bool include_last_user_message = 6;
+  .antigravity.localharness.CompactionConfig.StepCompaction step_compaction = 7;
 }
