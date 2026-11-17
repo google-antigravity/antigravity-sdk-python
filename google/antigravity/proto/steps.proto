@@ -99,9 +99,13 @@ message ToolCallStep {
   }
 }
 message ToolResultStep {
+  message BackgroundTask {
+    string task_id = 1;
+  }
   string call_id = 1;
   bytes signature = 2;
   string error = 20;
+  .genai.ToolResultStep.BackgroundTask background = 22;
   oneof type {
     option (gaos.parsing.subtype_source) = true;
 
@@ -422,12 +426,12 @@ message ManageTaskCallStep {
     ACTION_KILL = 4;
   }
   .genai.ManageTaskCallStep.Action action = 1;
-  string call_id = 2;
+  string task_id = 2;
   string input = 3;
 }
 message ManageTaskResultStep {
   message Task {
-    string call_id = 1;
+    string task_id = 1;
     .genai.ManageTaskResultStep.Status status = 2;
   }
   enum Status {
