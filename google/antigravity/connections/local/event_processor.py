@@ -1163,6 +1163,20 @@ class LocalHarnessEventProcessor(BaseLocalEventProcessor):
 
       result = await self._execute_client_tool(tc)
       if result is not None:
+        # The harness's terminal step for this call has its tool_calls
+        # stripped (see _emit_step), so close the call here.
+        done_step = tool_call_step.model_copy()
+        done_step.status = types.StepStatus.DONE
+        if result.error is not None:
+          done_step.status = types.StepStatus.ERROR
+          done_step.error = result.error
+        elif result.result is not None:
+          # As for the model: media split out, non-strings JSON-encoded.
+          value, _ = _extract_media_from_result(result.result)
+          if not isinstance(value, str) and value is not None:
+            value = _ANY_ADAPTER.dump_json(value, fallback=str).decode()
+          done_step.content = value or ""
+        await self.step_queue.put(done_step)
         await self._send_tool_results([result])
     except Exception as e:  # pylint: disable=broad-except
       logging.exception("_handle_tool_call failed; returning error to model")

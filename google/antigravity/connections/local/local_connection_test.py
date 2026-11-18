@@ -1827,6 +1827,72 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(step_obj.tool_calls[0].name, "run_command")
     self.assertEqual(step_obj.tool_calls[0].args, {"command": "ls"})
 
+  async def test_handle_tool_call_queues_done_step_after_client_tool(self):
+    """A client tool's result is queued as a terminal DONE step for its call."""
+    self.tool_runner.register(lambda: "file text", name="client_tool")
+    harness = self._make_harness()
+    conn = harness.conn
+
+    await conn._handle_tool_call(
+        localharness_pb2.ToolCall(
+            id="call_ok", name="client_tool", arguments_json="{}"
+        )
+    )
+
+    active = await conn._step_queue.get()
+    done = await conn._step_queue.get()
+    self.assertEqual(active.status, types.StepStatus.ACTIVE)
+    self.assertEqual(
+        (done.id, done.status, done.content, done.error),
+        ("call_ok", types.StepStatus.DONE, "file text", ""),
+    )
+    self.assertEqual([tc.id for tc in done.tool_calls], ["call_ok"])
+
+  async def test_handle_tool_call_done_step_json_encodes_non_string_result(
+      self,
+  ):
+    """A non-string client tool result is JSON-encoded, not repr'd."""
+    self.tool_runner.register(lambda: {"ok": "pending"}, name="client_tool")
+    harness = self._make_harness()
+    conn = harness.conn
+
+    await conn._handle_tool_call(
+        localharness_pb2.ToolCall(
+            id="call_dict", name="client_tool", arguments_json="{}"
+        )
+    )
+
+    await conn._step_queue.get()  # ACTIVE
+    done = await conn._step_queue.get()
+    self.assertEqual(done.content, '{"ok":"pending"}')
+
+  async def test_handle_tool_call_queues_error_step_after_failed_client_tool(
+      self,
+  ):
+    """A failing client tool is queued as a terminal ERROR step for its call."""
+
+    def failing_tool():
+      raise RuntimeError("read failed")
+
+    self.tool_runner.register(failing_tool, name="client_tool")
+    harness = self._make_harness()
+    conn = harness.conn
+
+    await conn._handle_tool_call(
+        localharness_pb2.ToolCall(
+            id="call_err", name="client_tool", arguments_json="{}"
+        )
+    )
+
+    await conn._step_queue.get()  # ACTIVE
+    done = await conn._step_queue.get()
+    self.assertEqual(
+        (done.id, done.status, done.content),
+        ("call_err", types.StepStatus.ERROR, ""),
+    )
+    self.assertIn("read failed", done.error)
+    self.assertEqual([tc.id for tc in done.tool_calls], ["call_err"])
+
   async def test_wait_for_idle_does_not_deadlock(self):
     """Verifies that wait_for_idle completes when the connection goes idle.
 
