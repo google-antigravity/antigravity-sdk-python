@@ -97,6 +97,7 @@ message ImageContent {
     string uri = 6;
   }
   .genai.MediaResolution resolution = 5;
+  string name = 16;
 }
 message AudioContent {
   message StaticMediaProcessing {
@@ -148,6 +149,7 @@ message AudioContent {
     .genai.AudioContent.Processing processing_type = 17;
     .genai.AudioContent.MediaProcessing processing_config = 18;
   }
+  string name = 16;
 }
 message DocumentContent {
   message PageProcessingOptions {
@@ -236,6 +238,7 @@ message DocumentContent {
     .genai.DocumentContent.Processing processing_type = 18;
     .genai.DocumentContent.MediaProcessing processing_config = 19;
   }
+  string name = 16;
 }
 message VideoContent {
   message StaticMediaProcessing {

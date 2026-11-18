@@ -47,6 +47,7 @@ message Step {
     .genai.ElicitationCallStep elicitation_call = 13;
     .genai.ElicitationResultStep elicitation_result = 14;
     .genai.CompactionStep compaction = 11;
+    .genai.HarnessMessageStep harness_message = 29;
     .genai.UserInputStep user_input = 1;
     .genai.ModelOutputStep model_output = 2;
     .genai.LegacyTextContent text = 6;
@@ -263,6 +264,7 @@ message LegacyImageContent {
     string uri = 3;
   }
   .genai.MediaResolution resolution = 4;
+  string name = 16;
 }
 message LegacyAudioContent {
   .genai.AudioContent.MimeType mime_type = 1
@@ -281,6 +283,7 @@ message LegacyAudioContent {
     .genai.AudioContent.Processing processing_type = 17;
     .genai.AudioContent.MediaProcessing processing_config = 18;
   }
+  string name = 16;
 }
 message LegacyDocumentContent {
   .genai.DocumentContent.MimeType mime_type = 1
@@ -297,6 +300,7 @@ message LegacyDocumentContent {
     .genai.DocumentContent.Processing processing_type = 18;
     .genai.DocumentContent.MediaProcessing processing_config = 19;
   }
+  string name = 16;
 }
 message LegacyVideoContent {
   .genai.VideoContent.MimeType mime_type = 1
@@ -442,6 +446,19 @@ message ManageTaskResultStep {
     STATUS_CANCELLED = 4;
   }
   repeated .genai.ManageTaskResultStep.Task tasks = 1;
+}
+message HarnessMessageStep {
+  message ToolOrigin {
+    string call_id = 1;
+  }
+  message InteractionOrigin {
+    string interaction_id = 1;
+  }
+  oneof origin {
+    .genai.HarnessMessageStep.ToolOrigin tool = 1;
+    .genai.HarnessMessageStep.InteractionOrigin interaction = 2;
+  }
+  repeated .genai.Content content = 3;
 }
 message FinishCallStep {
   .genai.Struct arguments = 1;
