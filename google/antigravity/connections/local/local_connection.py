@@ -30,7 +30,7 @@ import struct
 import subprocess
 import sys
 import threading
-from typing import Any, AsyncIterator, Callable, Sequence, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Sequence, cast
 
 from google.protobuf import json_format
 from typing_extensions import override
@@ -54,6 +54,7 @@ CLOSE_SENTINEL = event_processor.CLOSE_SENTINEL
 # tests fast.
 _PROCESS_WAIT_TIMEOUT_SECONDS = 3 * 60
 _MAX_WEBSOCKET_CONNECT_RETRIES = 5
+_GEMINI_BASE_URL_ENV_VAR = "GOOGLE_GEMINI_BASE_URL"
 
 _SESSION_CONTINUATION_MODE_MAP = {
     types.SessionContinuationMode.RESUME: localharness_pb2.HarnessConfig.RESUME,
@@ -215,10 +216,33 @@ def build_tool_output_truncation_proto(
   return proto
 
 
+def _resolve_gemini_base_url(
+    endpoint: types.GeminiAPIEndpoint,
+    env: Mapping[str, str] | None = None,
+) -> str:
+  """Resolves the effective base URL for a Gemini API endpoint."""
+  if endpoint.base_url:
+    return endpoint.base_url
+  if env is not None:
+    return env.get(_GEMINI_BASE_URL_ENV_VAR, "")
+  return ""
+
+
 def build_models_proto(
     models: list[types.ModelTarget],
+    env: Mapping[str, str] | None = None,
 ) -> list[localharness_pb2.ModelConfig]:
-  """Builds a list of ModelConfig protos from a ModelConfig list."""
+  """Builds a list of ModelConfig protos from a ModelConfig list.
+
+  Args:
+    models: Model targets to convert.
+    env: Optional resolved environment mapping used to populate empty
+      GeminiAPIEndpoint.base_url fields from GOOGLE_GEMINI_BASE_URL. When None,
+      environment variables are not consulted.
+
+  Returns:
+    A list of localharness_pb2.ModelConfig protos matching ``models``.
+  """
   protos = []
   for m in models:
     proto = localharness_pb2.ModelConfig(
@@ -227,7 +251,7 @@ def build_models_proto(
     )
     if isinstance(m.endpoint, types.GeminiAPIEndpoint):
       api_endpoint_proto = localharness_pb2.GeminiAPIEndpoint(
-          base_url=m.endpoint.base_url or "",
+          base_url=_resolve_gemini_base_url(m.endpoint, env),
           http_headers=m.endpoint.http_headers or {},
           api_key=m.endpoint.api_key or "",
       )
@@ -1380,7 +1404,13 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
 
     models_protos = []
     if self._models:
-      models_protos = build_models_proto(self._models)
+      harness_env: Mapping[str, str] = os.environ
+      if self._env:
+        harness_env = {
+            **os.environ,
+            **{str(k): str(v) for k, v in self._env.items()},
+        }
+      models_protos = build_models_proto(self._models, env=harness_env)
     workspace_protos = [
         localharness_pb2.Workspace(
             filesystem_workspace=localharness_pb2.FilesystemWorkspace(

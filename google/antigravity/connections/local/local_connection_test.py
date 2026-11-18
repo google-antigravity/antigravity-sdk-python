@@ -2256,6 +2256,137 @@ class LocalConnectionStrategyConfigTest(parameterized.TestCase):
     # api_key should not be set (proto default empty string).
     self.assertEqual(config.models[0].gemini_api_endpoint.api_key, "")
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="from_os_environ",
+          os_environ={"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"},
+          strategy_env=None,
+          expected_base_url="http://os-env.test",
+      ),
+      dict(
+          testcase_name="strategy_env_overrides_os_environ",
+          os_environ={"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"},
+          strategy_env={"GOOGLE_GEMINI_BASE_URL": "http://strategy-env.test"},
+          expected_base_url="http://strategy-env.test",
+      ),
+      dict(
+          testcase_name="strategy_env_empty_clears_os_environ",
+          os_environ={"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"},
+          strategy_env={"GOOGLE_GEMINI_BASE_URL": ""},
+          expected_base_url="",
+      ),
+      dict(
+          testcase_name="unrelated_strategy_env_falls_back_to_os_environ",
+          os_environ={"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"},
+          strategy_env={"OTHER_VAR": "1"},
+          expected_base_url="http://os-env.test",
+      ),
+      dict(
+          testcase_name="from_strategy_env_only",
+          os_environ={},
+          strategy_env={"GOOGLE_GEMINI_BASE_URL": "http://strategy-env.test"},
+          expected_base_url="http://strategy-env.test",
+      ),
+      dict(
+          testcase_name="unset",
+          os_environ={},
+          strategy_env=None,
+          expected_base_url="",
+      ),
+  )
+  def test_gemini_base_url_resolved_from_harness_env(
+      self, os_environ, strategy_env, expected_base_url
+  ):
+    """Verifies GOOGLE_GEMINI_BASE_URL fills empty Gemini API base URLs."""
+    models = [
+        types.ModelTarget(
+            name="gemini-4-hydrogen",
+            types=[types.ModelType.TEXT],
+            endpoint=types.GeminiAPIEndpoint(),
+        ),
+        types.ModelTarget(
+            name="gemini-image",
+            types=[types.ModelType.IMAGE],
+            endpoint=types.GeminiAPIEndpoint(api_key="test-key"),
+        ),
+    ]
+    with mock.patch.dict("os.environ", os_environ, clear=True):
+      strategy = self._make_strategy(
+          models=models, env=strategy_env, app_data_dir="/tmp/app_data"
+      )
+      config = strategy._build_harness_config()
+    self.assertEqual(
+        [m.gemini_api_endpoint.base_url for m in config.models],
+        [expected_base_url, expected_base_url],
+    )
+
+  @mock.patch.dict(
+      "os.environ", {"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"}, clear=True
+  )
+  def test_explicit_gemini_base_url_takes_precedence_over_env(self):
+    """Verifies explicit base_url wins while unset siblings inherit env."""
+    models = [
+        types.ModelTarget(
+            name="gemini-4-hydrogen",
+            types=[types.ModelType.TEXT],
+            endpoint=types.GeminiAPIEndpoint(
+                base_url="https://gateway.example.com"
+            ),
+        ),
+        types.ModelTarget(
+            name="gemini-image",
+            types=[types.ModelType.IMAGE],
+            endpoint=types.GeminiAPIEndpoint(),
+        ),
+    ]
+    strategy = self._make_strategy(
+        models=models,
+        env={"GOOGLE_GEMINI_BASE_URL": "http://strategy-env.test"},
+        app_data_dir="/tmp/app_data",
+    )
+    config = strategy._build_harness_config()
+    self.assertEqual(
+        [m.gemini_api_endpoint.base_url for m in config.models],
+        ["https://gateway.example.com", "http://strategy-env.test"],
+    )
+
+  @mock.patch.dict(
+      "os.environ", {"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"}, clear=True
+  )
+  def test_gemini_base_url_env_does_not_apply_to_vertex(self):
+    """Verifies GOOGLE_GEMINI_BASE_URL leaves Vertex AI endpoints unchanged."""
+    models = [
+        types.ModelTarget(
+            name="gemini-4-hydrogen",
+            types=[types.ModelType.TEXT],
+            endpoint=types.VertexEndpoint(
+                project="my-project",
+                location="us-central1",
+            ),
+        )
+    ]
+    strategy = self._make_strategy(
+        models=models, app_data_dir="/tmp/app_data"
+    )
+    config = strategy._build_harness_config()
+    self.assertTrue(config.models[0].HasField("vertex_endpoint"))
+    self.assertEqual(config.models[0].vertex_endpoint.base_url, "")
+
+  @mock.patch.dict(
+      "os.environ", {"GOOGLE_GEMINI_BASE_URL": "http://os-env.test"}, clear=True
+  )
+  def test_build_models_proto_ignores_os_environ_when_env_omitted(self):
+    """Verifies build_models_proto does not read os.environ by default."""
+    models = [
+        types.ModelTarget(
+            name="gemini-4-hydrogen",
+            types=[types.ModelType.TEXT],
+            endpoint=types.GeminiAPIEndpoint(),
+        )
+    ]
+    protos = local_connection.build_models_proto(models)
+    self.assertEqual(protos[0].gemini_api_endpoint.base_url, "")
+
   def test_models_default_model_name(self):
     """Verifies the default model name propagates correctly."""
     models = [
