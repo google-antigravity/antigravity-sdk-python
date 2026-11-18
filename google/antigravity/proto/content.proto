@@ -538,6 +538,8 @@ message FunctionResultSubcontent {
 
     .genai.TextContent text = 1;
     .genai.ImageContent image = 2;
+    .genai.Function function = 3
+        [(gaos.parsing.json_discriminator_value) = "function"];
     .genai.VideoContent video = 4;
   }
 }

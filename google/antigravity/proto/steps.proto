@@ -85,6 +85,7 @@ message ToolCallStep {
     .genai.GoogleSearchCallStep google_search_call = 7;
     .genai.FileSearchCallStep file_search_call = 8;
     .genai.GoogleMapsCallStep google_maps_call = 9;
+    .genai.ToolSearchCallStep tool_search_call = 11;
     .genai.FindFileCallStep find_file_call = 12;
     .genai.ListDirectoryCallStep list_directory_call = 13;
     .genai.SearchDirectoryCallStep search_directory_call = 14;
@@ -117,6 +118,7 @@ message ToolResultStep {
     .genai.McpServerToolResultStep mcp_server_tool_result = 7;
     .genai.FileSearchResultStep file_search_result = 8;
     .genai.GoogleMapsResultStep google_maps_result = 9;
+    .genai.ToolSearchResultStep tool_search_result = 11;
     .genai.FindFileResultStep find_file_result = 12;
     .genai.ListDirectoryResultStep list_directory_result = 13;
     .genai.SearchDirectoryResultStep search_directory_result = 14;
@@ -173,6 +175,18 @@ message GoogleMapsCallStep {
     repeated string queries = 1;
   }
   .genai.GoogleMapsCallStep.GoogleMapsCallStepArguments arguments = 1;
+}
+message ToolSearchCallStep {
+  message ToolSearchCallStepArguments {
+    repeated string function_names = 1;
+  }
+  .genai.ToolSearchCallStep.ToolSearchCallStepArguments arguments = 1;
+}
+message ToolSearchResultStep {
+  repeated .genai.Function result = 1 [
+    (gaos.parsing.json_discriminator) = "type",
+    (gaos.parsing.json_discriminator_value) = "function"
+  ];
 }
 message ProcessingCallStep {}
 message ProcessingResultStep {}
